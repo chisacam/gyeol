@@ -2,8 +2,8 @@
 """Rebuild semantics indices from reference frontmatter.
 
 Generates:
-  - .memory/semantics/_index.md    (master reference list)
-  - .memory/semantics/_tags.md     (tag → reference ID inverted index)
+  - memory/semantics/_index.md    (master reference list)
+  - memory/semantics/_tags.md     (tag → reference ID inverted index)
 
 Usage:
     python3 scripts/build-index.py
@@ -16,7 +16,15 @@ import sys
 from collections import defaultdict
 from datetime import date
 
-SEMANTICS_DIR = os.path.join(os.path.dirname(__file__), '..', '.memory', 'semantics')
+# Resolve the semantics directory. The installed layout ($GYEOL_HOME) uses
+# memory/semantics, while the repo's own gitignored dev memory uses
+# .memory/semantics. Prefer the installed layout and fall back to the dev
+# layout when only that one is present.
+_GYEOL_HOME = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+SEMANTICS_DIR = os.path.join(_GYEOL_HOME, 'memory', 'semantics')
+if not os.path.isdir(SEMANTICS_DIR) and os.path.isdir(
+        os.path.join(_GYEOL_HOME, '.memory', 'semantics')):
+    SEMANTICS_DIR = os.path.join(_GYEOL_HOME, '.memory', 'semantics')
 
 
 def parse_frontmatter(filepath: str) -> dict | None:

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Fetch web page content and save as markdown in .memory/semantics/source/.
+"""Fetch web page content and save as markdown in memory/semantics/source/.
 
 Usage:
     python3 scripts/fetch-source.py <id> <url>
@@ -9,7 +9,7 @@ Usage:
 
 PDF URLs are downloaded and converted via pymupdf4llm.
 HTML fetches fall back to Wayback Machine when blocked.
-If a manual capture is placed at .memory/semantics/source/manual/{id}-*.pdf, it is used
+If a manual capture is placed at memory/semantics/source/manual/{id}-*.pdf, it is used
 as-is instead of a network fetch.
 
 Examples:
@@ -31,7 +31,15 @@ import urllib.request
 import trafilatura
 from trafilatura.settings import use_config
 
-SEMANTICS_DIR = os.path.join(os.path.dirname(__file__), '..', '.memory', 'semantics')
+# Resolve the semantics directory. The installed layout ($GYEOL_HOME) uses
+# memory/semantics, while the repo's own gitignored dev memory uses
+# .memory/semantics. Prefer the installed layout and fall back to the dev
+# layout when only that one is present.
+_GYEOL_HOME = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+SEMANTICS_DIR = os.path.join(_GYEOL_HOME, 'memory', 'semantics')
+if not os.path.isdir(SEMANTICS_DIR) and os.path.isdir(
+        os.path.join(_GYEOL_HOME, '.memory', 'semantics')):
+    SEMANTICS_DIR = os.path.join(_GYEOL_HOME, '.memory', 'semantics')
 SOURCE_DIR = os.path.join(SEMANTICS_DIR, 'source')
 MANUAL_DIR = os.path.join(SOURCE_DIR, 'manual')
 
@@ -329,7 +337,7 @@ def list_missing():
         missing.append((ref_id, title, url))
 
     print(f'# Missing sources ({len(missing)} refs)\n')
-    print('Put manual captures in `.memory/semantics/source/manual/{id}-{slug}.pdf`')
+    print('Put manual captures in `memory/semantics/source/manual/{id}-{slug}.pdf`')
     print('and re-run `python3 scripts/fetch-source.py --all`.\n')
     for rid, title, url in missing:
         print(f'- [{rid}] {title}')
