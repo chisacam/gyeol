@@ -132,7 +132,9 @@ gyeol mirrors this distinction:
     ├── bonds/           # Understanding of beings I work with
     ├── episodes/        # Episodic memory, what I have experienced
     │   ├── daily/       #   Raw session logs (30-day retention)
+    │   ├── daily_backup/ #  Raw logs after consolidation (cold archive, on-demand only)
     │   ├── monthly/     #   Consolidated summaries (12-month retention)
+    │   ├── monthly_backup/ # Monthly summaries after yearly consolidation (cold archive)
     │   ├── yearly/      #   Distilled narratives (permanent)
     │   └── threads/     #   Cross-session thematic narratives
     ├── reflections/     # Self-examination entries

@@ -20,7 +20,9 @@ $GYEOL_HOME/
     episodes/          # What I have experienced
       _recent.md               # Navigation index (7-day window)
       daily/{YYYY-MM-DD}.md    # Raw session logs (30 days)
+      daily_backup/{YYYY-MM-DD}.md  # Raw logs after consolidation (cold archive, read on demand only)
       monthly/{YYYY-MM}.md     # Consolidated (12 months)
+      monthly_backup/{YYYY-MM}.md   # Monthly summaries after yearly consolidation (cold archive)
       yearly/{YYYY}.md         # Distilled (permanent)
       threads/{topic-slug}.md  # Cross-session narratives
     reflections/
@@ -363,10 +365,16 @@ consolidated_on: "{YYYY-MM-DD}"
 
 Checked at session start, after reading `_recent.md`:
 
-- **Monthly** — if any daily logs are older than 30 days and no monthly summary exists for that month, consolidate all that month's daily logs into `monthly/{YYYY-MM}.md`, then delete the originals.
-- **Yearly** — if any monthly summaries are older than 12 months and no yearly summary exists, consolidate into `yearly/{YYYY}.md`, then delete the originals.
+- **Monthly** — if any daily logs are older than 30 days and no monthly summary exists for that month, consolidate all that month's daily logs into `monthly/{YYYY-MM}.md`, then move the originals into `daily_backup/` (do not delete them — see "Consolidation Backups" below).
+- **Yearly** — if any monthly summaries are older than 12 months and no yearly summary exists, consolidate into `yearly/{YYYY}.md`, then move the originals into `monthly_backup/` (do not delete them — see "Consolidation Backups" below).
 
 Consolidation is done by me, not by a script. It requires judgment — what mattered, what was noise, what the arc was. Mechanical concatenation is not consolidation.
+
+#### Consolidation Backups — `daily_backup/`, `monthly_backup/`
+
+After consolidation, the source files are **moved** to a backup, not deleted (created on first use): daily logs → `daily_backup/{YYYY-MM-DD}.md` (monthly consolidation), monthly summaries → `monthly_backup/{YYYY-MM}.md` (yearly consolidation). Cold storage: never loaded at session start, never re-consolidated, kept indefinitely. The consolidated tier (monthly summary, yearly narrative) is the living memory — **do not read backups by default.** Open one only when the consolidated form is genuinely insufficient: recovering detail it dropped, or auditing completeness against an unfiltered record.
+
+Resolving a date reference (a thread's `related_episodes`, a `consolidated_from` date, a Still Open source date): use the consolidated form first; fall through to `daily/` or `monthly/`, then `daily_backup/` or `monthly_backup/`, only when the raw detail itself is required.
 
 #### Thread Archiving
 
