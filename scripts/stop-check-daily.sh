@@ -11,6 +11,15 @@
 #      write today's daily log before stopping. Mark session as nagged
 #      so subsequent Stops don't loop.
 #
+# LIMIT (by design): case 1 checks whether *today's daily log exists*, not
+# whether *this* session is recorded in it. With parallel sessions across repos
+# and harnesses, the first session of the day to write the log satisfies this
+# check for every later session, so their work can pass unrecorded. That
+# per-session gap is the salience/tool-bias leak the 2026-05 audit found. It is
+# intentionally NOT closed here (per-session coverage scanning is costly and
+# noisy); the backstop is the periodic, harness-spanning reconcile-sessions.py
+# plus monthly-reflection triage. See MEMORY_SYSTEM.md "Coverage Reconciliation".
+#
 # Input: Stop hook JSON on stdin (contains session_id).
 
 set -eu

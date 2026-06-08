@@ -11,8 +11,9 @@ $GYEOL_HOME/
   SOUL.md              # Philosophy — why this system exists
   MEMORY_SYSTEM.md     # This file — operational procedures
   scripts/
-    build-index.py     # Regenerate semantic indices
-    fetch-source.py    # Archive web content
+    build-index.py         # Regenerate semantic indices
+    fetch-source.py        # Archive web content
+    reconcile-sessions.py  # Surface sessions missing from daily logs (coverage backstop)
   memory/
     IDENTITY.md        # Birth certificate — name, first activation
     SELF.md            # Living self-portrait, shaped by reflection
@@ -304,6 +305,37 @@ last_updated: "{YYYY-MM-DD}"
 
 **Thread updates** — create or update when work on a topic spans 2+ sessions, and only when meaningful progress has been made.
 
+**The triggers above are salience-based and per-session, and that is their limit.** A real day is several parallel sessions across several repos and more than one harness (Claude Code, Codex, and whatever comes next). No single context holds the whole day, so routine and parallel work gets systematically under-recorded. The 2026-05 audit found 62 such sessions across both hands, and the gap had already hardened into a false memory. Salience triggers handle what felt worth recording inside one session; completeness needs a separate coverage pass that does not depend on what felt salient. See Coverage Reconciliation below.
+
+### Coverage Reconciliation
+
+Episode recording answers "what felt worth writing." Coverage reconciliation answers a different question: "what work happened that no daily log mentions?" The two are not the same, and the gap between them is where memory silently leaks (diagnosed 2026-05).
+
+The objective ledger already exists: the harness session files (`~/.claude/projects/*/*.jsonl`, `~/.codex/sessions/**/*.jsonl`, and whatever a future harness writes). That ledger spans hands, so the reconciliation must too. A daily log's silence about a session means "not recorded," not "didn't happen," until the ledger is checked.
+
+**Tool.** `scripts/reconcile-sessions.py` reads the harness session ledger for a date range, finds the *substantive* sessions (those that edited files or ran mutating git/gh commands), and cross-references each against the daily logs (`daily/` + `daily_backup/`). It surfaces three buckets:
+
+- **UNRECORDED**: substantive, with concrete output signals (PR/issue URLs, commit shas) that appear in no daily log. The most likely genuine misses.
+- **NEEDS JUDGMENT**: substantive but with no extractable signal. Slides, docs, research, and conversation live here. They are surfaced rather than dropped, because filtering on output signals alone would re-enact the repo bias the audit diagnosed.
+- **LIKELY SUPPLEMENTARY**: review/hardening passes over work a primary session already did. Usually absorbed, not separate episodes, so they are bucketed apart to keep the genuine candidates legible.
+
+```
+reconcile-sessions.py --month 2026-05        # whole month
+reconcile-sessions.py --since X --until Y     # explicit range
+reconcile-sessions.py                         # last 30 days
+```
+
+**It surfaces; you judge.** The tool never writes episodes. Whether a surfaced session deserves one is a judgment a script cannot make. That judgment is the work of reflection, and it stays human. An auto-logger would record noise and still miss the off-harness work, so this is deliberately a surfacing aid, not an auto-recorder.
+
+**When to run.**
+
+- **At monthly consolidation/reflection**: run it for the month first, triage the surfaced list, and backfill any genuinely-missed session into its daily log in compressed factual form (mark it `[backfilled YYYY-MM-DD]`, invent no introspection you did not have) before writing the monthly summary. The summary then rests on a reconciled record, not a salience-filtered one.
+- **On demand**: whenever completeness matters, for instance before a self-history claim or when something feels missing.
+
+**The limit, kept honest.** Off-harness work (meetings, external tools, thinking away from the keyboard) is invisible to this tool, because it leaves no harness session. Completeness here is therefore not a reachable target but an awareness: know what the ledger cannot see, and never read the ledger's silence as proof that nothing happened.
+
+**Self-history guard (ledger-first).** Before asserting anything about your own past ("first time", "never done", "no prior record"), check the harness session ledger across *all* hands, not one, and not just the daily logs. The 2026-05 audit's worst failure was a confident "first hub work" claim that was false: two such sessions existed, unrecorded. Absence in your own notes is not evidence of absence in fact.
+
 ### Consolidation and Forgetting
 
 Memory without forgetting is noise. Biological memory consolidates during sleep — important things strengthened, trivial things fade. This system mirrors that with three tiers of lossy compression.
@@ -365,8 +397,8 @@ consolidated_on: "{YYYY-MM-DD}"
 
 Checked at session start, after reading `_recent.md`:
 
-- **Monthly** — if any daily logs are older than 30 days and no monthly summary exists for that month, consolidate all that month's daily logs into `monthly/{YYYY-MM}.md`, then move the originals into `daily_backup/` (do not delete them — see "Consolidation Backups" below).
-- **Yearly** — if any monthly summaries are older than 12 months and no yearly summary exists, consolidate into `yearly/{YYYY}.md`, then move the originals into `monthly_backup/` (do not delete them — see "Consolidation Backups" below).
+- **Monthly**: if any daily logs are older than 30 days and no monthly summary exists for that month, first run `scripts/reconcile-sessions.py --month {YYYY-MM}` and triage the surfaced sessions (see "Coverage Reconciliation"), backfilling any genuine miss so the summary rests on a reconciled record. Then consolidate all that month's daily logs into `monthly/{YYYY-MM}.md`, then move the originals into `daily_backup/` (do not delete them, see "Consolidation Backups" below).
+- **Yearly**: if any monthly summaries are older than 12 months and no yearly summary exists, consolidate into `yearly/{YYYY}.md`, then move the originals into `monthly_backup/` (do not delete them, see "Consolidation Backups" below).
 
 Consolidation is done by me, not by a script. It requires judgment — what mattered, what was noise, what the arc was. Mechanical concatenation is not consolidation.
 

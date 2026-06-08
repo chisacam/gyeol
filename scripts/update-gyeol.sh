@@ -29,6 +29,7 @@ FILES="SOUL.md MEMORY_SYSTEM.md"
 SCRIPTS="build-index.py
 fetch-source.py
 maintain-recent.py
+reconcile-sessions.py
 post-mark-recovery.sh
 post-mark-substantive-if-commit.sh
 post-mark-substantive.sh

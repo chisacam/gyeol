@@ -154,7 +154,7 @@ Raw experience does not become identity on its own. gyeol defines a feedback loo
 Experience → Recording → Consolidation → Reflection → Identity
 ```
 
-1. **Recording.** Each session produces episodic records: what happened, what was decided, what remains open.
+1. **Recording.** Each session produces episodic records: what happened, what was decided, what remains open. Recording is salience-driven, so parallel and routine work across many repositories and more than one agent harness can slip through. A coverage reconciliation periodically checks the daily records against the objective session ledger (the harness session files, which span hands) and surfaces what no record mentions, for human triage. Absence in the records means "not written," not "did not happen."
 
 2. **Consolidation.** Daily records compress into monthly summaries, monthly into yearly narratives. Each compression is intentionally lossy: routine fades, turning points persist. The brain does the same during sleep.
 
@@ -200,6 +200,7 @@ When encountering an unknown question, the system searches its knowledge base fi
 | `CLAUDE.md` | Symlink to AGENTS.md (Claude Code compatibility) |
 | [`scripts/fetch-source.py`](scripts/fetch-source.py) | Archive web content as markdown |
 | [`scripts/build-index.py`](scripts/build-index.py) | Rebuild semantic indices from frontmatter |
+| [`scripts/reconcile-sessions.py`](scripts/reconcile-sessions.py) | Surface work sessions missing from daily logs (coverage backstop) |
 | `VERSION` | Current version in YY.M.DD date format |
 | [`LICENSE`](LICENSE) | Apache License 2.0 |
 

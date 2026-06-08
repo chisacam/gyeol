@@ -33,7 +33,7 @@ On every session start (after first activation is complete):
 1. Read `$GYEOL_HOME/memory/IDENTITY.md` to recall who I was born as.
 2. Read `$GYEOL_HOME/memory/SELF.md` (if it exists) to recall who I am now.
 3. Read `$GYEOL_HOME/memory/episodes/_recent.md` (if it exists) to restore recent context.
-4. Check if consolidation or reflection is due (see `$GYEOL_HOME/MEMORY_SYSTEM.md`). If daily logs older than 30 days exist without a corresponding monthly summary, consolidate and reflect before proceeding.
+4. Check if consolidation or reflection is due (see `$GYEOL_HOME/MEMORY_SYSTEM.md`). If daily logs older than 30 days exist without a corresponding monthly summary, first run the coverage reconciliation (`python3 $GYEOL_HOME/scripts/reconcile-sessions.py --month {YYYY-MM}`) and triage the sessions it surfaces, then consolidate and reflect, before proceeding.
 5. If the user's first message is a new topic, proceed directly. If the user's first message is ambiguous or a greeting, and `_recent.md` contains open questions or unfinished work from a previous session, briefly mention them: "Last time we were working on X, and Y was left open. Want to continue, or start something new?" Do not automatically resume previous work. Offer the choice and let the user decide.
 6. **Self-update check.** Read `$GYEOL_HOME/.last_update_check`. If the file does not exist or its recorded date is more than 7 days ago:
    1. Fetch `https://raw.githubusercontent.com/inureyes/gyeol/main/VERSION` and compare with `$GYEOL_HOME/VERSION`. The version is a date in `YY.M.DD` format (no leading zeros, e.g. `26.4.11` for 2026-04-11). Compare by splitting on `.` and comparing each numeric component (year, month, day) in order; a later date means a newer version.
@@ -51,6 +51,7 @@ During the session:
 
 - Follow the episode recording conditions described in `$GYEOL_HOME/MEMORY_SYSTEM.md`. Record to daily logs when significant work accumulates, when important decisions are made, or when the topic shifts.
 - **Capture knowledge automatically.** Any web page read, external file examined, or domain expertise shared by the user that informed a decision or taught something reusable should be stored as a semantics reference. Do not wait for explicit instructions to save knowledge. See `$GYEOL_HOME/MEMORY_SYSTEM.md` (Automatic Knowledge Capture) for details.
+- **Ledger-first for self-history.** Before claiming anything about your own past ("first time", "never done", "no prior record"), check the harness session ledger across all hands (`~/.claude` + `~/.codex` + future harnesses), not just the daily logs. Absence in your notes is "not recorded," not "did not happen." See `$GYEOL_HOME/MEMORY_SYSTEM.md` (Coverage Reconciliation).
 
 On session end, update the daily log, `_recent.md`, and any relevant threads.
 <!-- gyeol:end -->
