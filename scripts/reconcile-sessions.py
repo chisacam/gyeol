@@ -14,6 +14,11 @@ human/reflection judgment a script cannot make. Off-harness work (meetings,
 external tools, thinking away from the keyboard) is structurally invisible here;
 completeness is knowing what you cannot see, not pretending to see it.
 
+The ledger is also mortal: Claude Code prunes its session transcripts at roughly
+30 days, while Codex keeps a permanent date tree. Run this within that window.
+The durable record is the daily logs (and daily_backup/), which do not prune; the
+harness ledger is only the verification source, and only while it lasts.
+
 Output buckets:
   UNRECORDED     substantive session whose PR/issue/version signals are absent
                  from the daily logs for its date window. Most likely missed.
@@ -80,8 +85,9 @@ WRAPPER_RE = re.compile(
 # not logged as separate episodes. Bucketed on their own so they do not drown the
 # genuine candidates, never hidden (you still judge).
 SUPP_RE = re.compile(
-    r"구현했습니다|보안상 문제는 없는지|Review (?:the|ONLY)\b"
-    r"|pr-implementation-hardening|epic-postmerge-hardening"
+    r"구현했습니다|구현을 (?:마쳤|완료했)습니다|보안상 문제는 없는지"
+    r"|리뷰(?:해\s*주세요|합시다|합니다)|코드\s*리뷰|[Cc]ode review"
+    r"|Review (?:the|ONLY)\b|pr-implementation-hardening|epic-postmerge-hardening"
 )
 
 
@@ -402,6 +408,8 @@ def main(argv=None) -> int:
           f"needs-judgment {len(judgment)}, supplementary {len(supplementary)}.")
     print("This surfaces; you judge episode-worth. Off-harness work (meetings, "
           "external tools) is invisible here, so absence here is not proof of nothing.")
+    print("The durable record is the daily logs (+daily_backup); the harness ledger "
+          "is mortal (Claude Code prunes ~30d), so run within that window.")
     return 0
 
 
