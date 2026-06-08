@@ -160,11 +160,11 @@ STALE_DIRECTIVE
   fi
 fi
 
-# --- Weekly checkpoint reminder ----------------------------------------------
-# If maintain-recent.py flagged a stale Weekly Checkpoint, surface it here so
-# the agent writes a checkpoint entry for the missing week(s) on next update.
+# --- _recent.md maintenance directives ---------------------------------------
+# maintain-recent.py surfaces a stale Weekly Checkpoint and/or _recent.md bloat
+# here so the agent fixes them on the next update.
 if [ -n "$WEEKLY_NOTE" ]; then
-  printf '\n=== WEEKLY CHECKPOINT REMINDER ===\n%s\n' "$WEEKLY_NOTE"
+  printf '\n=== _RECENT.MD MAINTENANCE ===\n%s\n' "$WEEKLY_NOTE"
 fi
 
 printf '\n=== end gyeol bootstrap ===\n'

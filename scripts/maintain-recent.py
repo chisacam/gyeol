@@ -1,15 +1,18 @@
 #!/usr/bin/env python3
-"""Maintain `_recent.md`: prune stale Daily Index entries, flag stale Weekly Checkpoint.
+"""Maintain `_recent.md`: prune stale Daily Index entries, flag stale Weekly Checkpoint, guard against bloat.
 
 Run from session bootstrap. Idempotent and best-effort:
 
 - Silently prunes Daily Index entries dated more than 7 days before today.
 - If the most recent Weekly Checkpoint header is for a week ending more than
   7 days ago, prints a directive on stdout for the bootstrap to relay.
+- If `_recent.md` has drifted past its navigation-index role (size over a
+  threshold, paragraph-length Daily Index entries, or a frontmatter content
+  dump), prints a maintenance directive. Surfaces only; never auto-deletes.
 - Exits 0 always; never blocks bootstrap on parse errors or missing files.
 
 `_recent.md` is the navigation index, not a content store. This script does
-NOT touch the `last_updated` frontmatter — that field reflects substantive
+NOT touch the `last_updated` frontmatter; that field reflects substantive
 session activity, not maintenance ops.
 """
 from __future__ import annotations
@@ -26,6 +29,14 @@ DAILY_INDEX_HEADER = re.compile(r"^## Daily Index\b")
 WEEK_HEADER = re.compile(r"^### Week of (\d{4}-\d{2}-\d{2})\s*$", re.MULTILINE)
 
 WINDOW_DAYS = 7
+
+# Bloat guard: _recent.md is a navigation index, soft target ~5 KB (see
+# MEMORY_SYSTEM.md). It drifted to ~71 KB once by accumulating paragraph-length
+# Daily Index entries, a frontmatter content dump, and stale Still Open items.
+# These thresholds surface the drift for the agent to compress; nothing here
+# auto-deletes content (that needs judgment).
+MAX_BYTES = 16384      # roughly 3x the soft target; clearly bloated
+MAX_INDEX_LINE = 400   # a Daily Index entry longer than this is a paragraph, not a line
 
 
 def gyeol_home() -> Path:
@@ -121,8 +132,42 @@ def weekly_checkpoint_directive(text: str, today: date) -> str | None:
     return (
         f"Weekly Checkpoint stale: most recent `### Week of {last.isoformat()}` "
         f"is {age} days old. Add a Weekly Checkpoint entry in `_recent.md` for the "
-        f"missing week(s) — 1-2 lines per week (Surprised / Stuck), "
+        f"missing week(s), 1-2 lines per week (Surprised / Stuck), "
         f"feeding monthly reflection. \"No notable surprises\" is fine; presence matters."
+    )
+
+
+def recent_bloat_directive(text: str) -> str | None:
+    """Surface _recent.md drift past its navigation-index role. Does not auto-edit."""
+    reasons = []
+    size = len(text.encode("utf-8"))
+    if size > MAX_BYTES:
+        reasons.append(f"{size // 1024} KB (navigation-index soft target ~5 KB)")
+    long_entries = 0
+    in_index = False
+    for line in text.splitlines():
+        if DAILY_INDEX_HEADER.match(line):
+            in_index = True
+            continue
+        if in_index and SECTION_HEADER.match(line):
+            in_index = False
+        if in_index and (line.startswith("  - ") or line.startswith("\t- ")) and len(line) > MAX_INDEX_LINE:
+            long_entries += 1
+    if long_entries:
+        reasons.append(f"{long_entries} Daily Index entry/entries over {MAX_INDEX_LINE} chars (should be one line)")
+    fm = re.match(r"^---\n(.*?)\n---", text, re.DOTALL)
+    if fm:
+        extra = [k for k in re.findall(r"^(\w+)\s*:", fm.group(1), re.MULTILINE) if k != "last_updated"]
+        if extra:
+            reasons.append("frontmatter has non-last_updated key(s): " + ", ".join(extra))
+    if not reasons:
+        return None
+    return (
+        "_recent.md maintenance: " + "; ".join(reasons) + ". It is a navigation index, "
+        "not a content store. Compress per MEMORY_SYSTEM.md: Daily Index one line per "
+        "session (detail stays in daily logs), triage Still Open (drop resolved, one line "
+        "each), drop weekly checkpoints already consumed by a monthly reflection, and keep "
+        "the frontmatter to last_updated only."
     )
 
 
@@ -144,9 +189,15 @@ def main() -> int:
         except Exception:
             new_text = text  # write failed; continue with original
 
-    msg = weekly_checkpoint_directive(new_text, today)
-    if msg:
-        print(msg)
+    directives = [
+        d for d in (
+            weekly_checkpoint_directive(new_text, today),
+            recent_bloat_directive(new_text),
+        )
+        if d
+    ]
+    if directives:
+        print("\n\n".join(directives))
     return 0
 
 
