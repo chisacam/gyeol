@@ -60,7 +60,7 @@ MUTATE_RE = re.compile(r'git commit|git push|git tag |gh pr create|gh pr merge|g
 # PR/issue URL, a git-commit-output sha, or a tag/release version is the session's
 # actual work product. Matching on those keeps "covered" meaningful.
 REF_RE = re.compile(r'github\.com/[\w.-]+/[\w.-]+/(?:pull|issues)/(\d+)')
-SHA_RE = re.compile(r'\[[^\]]*?\b([0-9a-f]{7,40})\]')  # git commit output: [branch 1a2b3c4]
+SHA_RE = re.compile(r'\[[^\]]*?\b([0-9a-f]{7,40})\]')  # git commit output, e.g. "[branch <sha>]"
 # Version tags are deliberately NOT used as signals. The bootstrap injects
 # _recent.md (which quotes "release: vX.Y.Z" for not-yet-published releases) into
 # every session, so a version would falsely tag every session as touching that
