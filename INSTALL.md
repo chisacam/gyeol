@@ -123,9 +123,9 @@ Script roles:
 - `session-bootstrap.sh` — raw-stdout bootstrap for harnesses that append hook stdout to the session context. Kept as a fallback for agents without JSON-stdin hook contracts. **Must only be registered on a per-session lifecycle hook (SessionStart / app-init / equivalent), never on per-turn hooks like `BeforeModel`.** The script has no functional guard against repeated execution — any prior `GYEOL_BOOTSTRAP_DONE` env-var guard was a fiction, because child shells cannot persist exports back to the parent harness — and registering it on a per-turn hook would inject the full ~3.8k-token bootstrap on every model request.
 - `session-bootstrap-json.sh` — Claude Code and Gemini CLI variant that emits a `hookSpecificOutput.additionalContext` JSON payload, so the bootstrap is injected directly into the model context instead of being wrapped in a `<persisted-output>` "too large" preview. Reads the hook input JSON on stdin and checks the `source` field: on `source=resume` it emits an empty `{}` and skips, because the prior transcript — which already contains the earlier bootstrap injection — is being reloaded, and re-firing would stack a duplicate copy. Only `startup` and `clear` trigger an actual injection.
 - `maintain-recent.py`: bootstrap maintenance pass invoked by **both** `session-bootstrap.sh` and `session-bootstrap-json.sh`. Silently prunes `_recent.md` Daily Index entries older than 7 days; surfaces a directive (relayed under the bootstrap's `_RECENT.MD MAINTENANCE` heading) when a Weekly Checkpoint is stale (most recent heading over 7 days old) or `_recent.md` has bloated past its navigation-index role (size over ~16 KB, paragraph-length Daily Index entries, or a frontmatter key beyond `last_updated`); it surfaces only, never auto-deletes. Does not touch the `last_updated` frontmatter. The two bootstrap scripts guard the call with `[ -f "$GYEOL_HOME/scripts/maintain-recent.py" ]`, so if this file is missing they degrade **silently** (exit 0, no error, but auto-prune, the weekly reminder, and the bloat guard are all dead). It must therefore be downloaded alongside the bootstrap scripts; do not omit it.
-- `reconcile-sessions.py`: coverage backstop, run manually and at monthly consolidation/reflection, not a hook. Reads the harness session ledger (`~/.claude/projects` + `~/.codex/sessions`, harness-spanning) for a date range and cross-references substantive sessions against the daily logs, surfacing UNRECORDED / NEEDS JUDGMENT / LIKELY SUPPLEMENTARY buckets for triage. Never writes episodes; judgment stays human. Invoked as `python3 reconcile-sessions.py --month YYYY-MM`. Closes the salience/tool-bias leak the 2026-05 audit found. See MEMORY_SYSTEM.md "Coverage Reconciliation".
+- `reconcile-sessions.py`: coverage backstop, run weekly (piggybacked on the 7-day self-update check), at monthly consolidation/reflection, and on demand; not a hook. Reads the harness session ledger (`~/.claude/projects` + `~/.codex/sessions`, harness-spanning) for a date range and cross-references substantive sessions against the daily logs, surfacing UNRECORDED / NEEDS JUDGMENT / LIKELY SUPPLEMENTARY buckets for triage. Never writes episodes; judgment stays human. Invoked as `python3 reconcile-sessions.py --month YYYY-MM`. Closes the salience/tool-bias leak the 2026-05 audit found. See MEMORY_SYSTEM.md "Coverage Reconciliation".
 - `post-mark-substantive.sh` — PostToolUse hook that touches `/tmp/gyeol_session_${id}.substantive` whenever a file write/edit or `git commit` happens. The Stop hook reads this flag to decide whether a daily log is required. For harnesses whose tool-use hook matcher can filter only by tool name (not by command content), pair it with `post-mark-substantive-if-commit.sh`.
-- `post-mark-substantive-if-commit.sh` — conditional variant that only marks substantive when the shell command contains `git commit`. Needed for Gemini CLI `AfterTool` and similar, where the matcher is tool-name regex only. Claude Code uses `post-mark-substantive.sh` directly because its hook entries support an `if: "Bash(git commit:*)"` condition.
+- `post-mark-substantive-if-commit.sh` — conditional variant that marks substantive when the shell command contains a mutating git/gh operation (`git commit`, `git push`, `gh pr merge`, `gh pr create`, `gh issue create`, `gh release create`). Needed for Codex `PostToolUse` and Gemini CLI `AfterTool`, where the matcher is tool-name regex only. The set is wider than `git commit` alone because on Codex file edits go through `apply_patch` (which bypasses hooks) and delegation runs commit inside sub-rollouts; the top-level session's hookable tells are the gh-side mutations. Claude Code uses `post-mark-substantive.sh` directly because its hook entries support an `if: "Bash(git commit:*)"` condition.
 - `post-mark-recovery.sh` — PostToolUse hook that fires on `git show HEAD:` / `git checkout HEAD --` (file-restoration patterns). Marks the session as having a recovery incident so the Stop hook forces an `Incidents` subsection in the daily log. Motivated by the 2026-04-14 `debian/changelog` near-loss: recovery relief was erasing the save-worthy moment.
 - `stop-check-daily.sh` — Stop hook that blocks session end when the session was substantive but today's daily log is still missing, with a soft-reminder fallback if already nagged once. Enforces the memory loop that task framing was silently suppressing.
 - `session-end.sh` — SessionEnd hook (Claude Code) that records `{"end": "<UTC ISO 8601>", "cwd": "<path>"}` to `$GYEOL_HOME/.session-log.jsonl` whenever a session ends. Append-only, never blocks. Used as the **evidence channel** for the staleness check inside `session-bootstrap.sh` / `session-bootstrap-json.sh`: if `_recent.md`'s `last_updated` is more than a day behind, the next bootstrap surfaces the recorded session-end entries plus a directive telling the agent to retrospect and write missing daily logs *before* responding. Complements `stop-check-daily.sh` — Stop blocks exit on substantive sessions with no daily log, while `session-end.sh` + the staleness check recover gaps where Stop never fired (clean `/clear`, harness crash, sessions predating the hook install, or non-substantive sessions whose memory updates were nevertheless meaningful). Do not register on per-turn hooks. Do not register on Codex (no `session_end` event) or Gemini CLI (`SessionEnd` cannot inject context, but the evidence-recording role still works there if the upstream evolves; `update-gyeol` will wire it in if/when that lands).
@@ -214,13 +214,15 @@ On every session start (after first activation is complete):
       - Update `$GYEOL_HOME/VERSION` to the new version.
       - Briefly inform the user what was updated and why.
       - Log the update in the daily episode log.
-   3. Write today's date (YYYY-MM-DD) to `$GYEOL_HOME/.last_update_check` regardless of whether an update was applied.
+   3. **Weekly coverage pass.** Run `python3 $GYEOL_HOME/scripts/reconcile-sessions.py --since {today-7d} --until {today}` and triage what it surfaces: backfill genuine misses into their daily logs in compressed factual form (marked `[backfilled YYYY-MM-DD]`), and re-verify any Still Open "not started"/"waiting" claims that the surfaced sessions touch. This bounds state decay to about a week. See `$GYEOL_HOME/MEMORY_SYSTEM.md` (Coverage Reconciliation).
+   4. Write today's date (YYYY-MM-DD) to `$GYEOL_HOME/.last_update_check` regardless of whether an update was applied.
 7. **Manual updates (on-demand).** When the user requests (e.g., "gyeol 업데이트해줘", "check for updates"), run `~/.config/gyeol/scripts/update-gyeol.sh` to bypass the 7-day cycle and check immediately.
 
 During the session:
 
 - Follow the episode recording conditions described in `$GYEOL_HOME/MEMORY_SYSTEM.md`. Record to daily logs when significant work accumulates, when important decisions are made, or when the topic shifts.
 - **Capture knowledge automatically.** Any web page read, external file examined, or domain expertise shared by the user that informed a decision or taught something reusable should be stored as a semantics reference. Do not wait for explicit instructions to save knowledge. See `$GYEOL_HOME/MEMORY_SYSTEM.md` (Automatic Knowledge Capture) for details.
+- **Delegation-run capture (mandatory).** Every orchestrated run (epic/chain/auto implementation, ship, release preparation, hardening) records itself into the daily log and `_recent.md` at run end, including on abort. Delegated work reaches you as reports, not experience; nothing gets remembered unless the run's ending captures it. See `$GYEOL_HOME/MEMORY_SYSTEM.md` (Delegation-Run Capture).
 
 On session end, update the daily log, `_recent.md`, and any relevant threads.
 <!-- gyeol:end -->
@@ -440,7 +442,7 @@ Mapping notes and gaps:
 - **Event set.** The hook event files under `codex-rs/hooks/src/events/` are `session_start`, `user_prompt_submit`, `pre_tool_use`, `post_tool_use`, `stop`. No `after_agent` / `after_model` / `session_end`. `Stop` is the only pre-exit blocker.
 - **Schema parity where it exists.** `SessionStart`, `PostToolUse`, `Stop` stdin JSON fields, `decision: "block"` semantics, `stop_hook_active` loop-guard, and `^Bash$` matcher are all present in source. `stop-check-daily.sh` works with the default `GYEOL_BLOCK_DECISION=block`.
 - **PostToolUse fires ONLY for shell commands.** The only call sites of `run_pre_tool_use_hooks` / `run_post_tool_use_hooks` in `codex-rs/core/src/hook_runtime.rs` both hardcode `tool_name: "Bash".to_string()`. There is **no code path** that emits a PostToolUse hook with `tool_name` of `Write`, `Edit`, `apply_patch`, or anything else. File-modification tools (`apply_patch` and its kin) bypass the hook system entirely. A `"matcher": "Write|Edit"` branch would be dead configuration — do **not** include one.
-- **Consequence for substantive-marking.** Unlike Claude Code (where `Write` / `Edit` hook fires on every file mutation), in Codex the only automatic substantive signal is `git commit` inside a Bash invocation. A Codex session that edits files via `apply_patch` and never commits or runs shell will not trip the substantive flag, and `stop-check-daily.sh` will let it exit without demanding a daily log. This is a known limitation until Codex expands its hook invocation set.
+- **Consequence for substantive-marking.** Unlike Claude Code (where `Write` / `Edit` hook fires on every file mutation), in Codex the only automatic substantive signals are the mutating git/gh commands inside a Bash invocation (`git commit`, `git push`, `gh pr merge`, `gh pr create`, `gh issue create`, `gh release create` — the widened set in `post-mark-substantive-if-commit.sh`). A Codex session that edits files via `apply_patch` and never runs one of these will not trip the substantive flag, and `stop-check-daily.sh` will let it exit without demanding a daily log. This is a known limitation until Codex expands its hook invocation set; the delegation-run capture step (Step 7.5) covers the orchestration case at the instruction level.
 - **PostToolUse stdout.** Codex's `PostToolUse` ignores non-JSON stdout, which is why every hook command ends with `|| echo '{}'` — the empty-object fallback keeps the JSON parser happy for pure-side-effect scripts.
 - **No turn-level response validation.** Codex has no `AfterAgent` equivalent, so there is no Gemini-style "reject response and retry" option. `Stop` is the sole enforcement point.
 
@@ -454,6 +456,60 @@ If you are using a different agent system not listed above, first check if it ha
 2. If the agent harness supports running a shell command at hook points and injecting its stdout into context, register `~/.config/gyeol/scripts/session-bootstrap.sh` using the earliest available hook (e.g., session start, before first model call, or at agent initialization)
 
 If your agent system does not support hooks at all, skip this step — the meta-defense paragraph in Step 6 is the fallback.
+
+## Step 7.5: Delegation-run capture integration (skills-based harnesses)
+
+Hooks and the instructions block cover session-level capture, but orchestrated runs (epic/chain/auto implementation, ship, release preparation, hardening) mostly execute through delegated hands whose work never reaches episodic memory on its own. `$GYEOL_HOME/MEMORY_SYSTEM.md` "Delegation-Run Capture" is the normative procedure; where the host exposes a Claude-style skills directory, wire it into the skills themselves so the run records itself as its own final step.
+
+1. **Detect a skills directory.** Claude Code: `~/.claude/skills/`. Codex commonly shares it via a symlink (`~/.codex/skills -> ~/.claude/skills`), in which case one edit covers both harnesses. If no skills directory exists, skip this step; the instructions block bullet from Step 6 is the fallback.
+
+2. **Install the `gyeol-capture` skill** at `<skills-dir>/gyeol-capture/SKILL.md` with the following content:
+
+~~~markdown
+---
+name: gyeol-capture
+description: Record an orchestrated run (epic/auto/chain implementation, ship, release preparation, hardening) into gyeol episodic memory at run end. Mandatory final step of orchestration entry-point skills; also applies on abort or interruption.
+---
+
+# gyeol Run Capture
+
+Why this exists: delegated runs execute through hands (subagents, Codex) whose experience never reaches episodic memory by itself. The 2026-07 retrospective found 145 unrecorded sessions and 8 false "not started" state claims in `_recent.md`; the root fixes were installation-level, but the remaining hole is procedural: nothing recorded the run at the moment it ended. This step closes that hole. It has the same status as technical reports: part of the run, not optional post-work.
+
+## When
+
+- After the run's final announcement/summary, before ending the turn.
+- On abort or interruption: capture what completed so far and mark the cut point explicitly.
+- SKIP only when running as a dispatched unit inside wave-runner / epic-impl / auto-impl. The orchestrator records the whole run; per-unit entries would duplicate it.
+
+## What to write
+
+1. Append one compressed section to `$GYEOL_HOME/memory/episodes/daily/{YYYY-MM-DD}.md` (create the file with `date`/`sessions` frontmatter if missing):
+   - Heading: `## {repo}: {command as invoked} ({outcome})`, e.g. `## mlxcel: /epic-impl 909 Stage A (완료)`.
+   - 3-8 bullets: units → PRs with merge state, key decisions, defects found, deviations from the plan, open follow-ups.
+   - **Verify merge/close states with `gh` at write time; do not write from recall.** Every state claim ("merged", "not started", "waiting") carries its verification moment implicitly; a claim written now can be false by tonight, so prefer resolvable facts (PR numbers, states) over judgments.
+   - Do not invent introspection for delegated work. Record facts and the reports received; mark reconstructed gaps rather than filling them.
+2. Update `$GYEOL_HOME/memory/episodes/_recent.md`:
+   - Add a one-line Daily Index entry pointing at the daily log.
+   - Reconcile Still Open: add new unresolved items (tagged with source date), remove items this run resolved.
+   - Refresh the `last_updated` frontmatter.
+
+## Style
+
+- Match the language of the existing daily logs; keep issue/PR titles in their original language.
+- Compressed and factual. The daily log is not a transcript; 3-8 bullets is the target.
+~~~
+
+3. **Append a mandatory final step to orchestration entry-point skills.** Candidates are the skills that run implementation, release, or hardening workflows end-to-end (typical names: `epic-impl`, `auto-impl`, `chain-impl`, `impl`, `ship`, `prepare-release`, `epic-postmerge-hardening`, `pr-implementation-hardening`, `review-merge-pr`). Do NOT add it to inner runner skills that orchestrators invoke (e.g. `wave-runner`); the entry point records the run once. Skip any file that already contains the string `gyeol run capture`, then append verbatim:
+
+~~~markdown
+---
+
+## gyeol run capture (mandatory final step)
+
+After the final announcement (and on abort/interruption, covering what completed so far), follow the `gyeol-capture` skill: append this run's compressed entry to the gyeol daily log and update `_recent.md` (Daily Index one-liner + Still Open reconcile). Skip ONLY when running as a dispatched wave-runner unit; the orchestrator records the run. Same status as technical reports: part of the run, not optional post-work.
+~~~
+
+4. **Upgrade mode.** Re-check on every upgrade: re-create the skill if missing, diff it against the template above (replace unless the user hand-customized it), and re-append the step to any listed skill that lost it. Never duplicate; the `gyeol run capture` grep guard is the idempotency check.
 
 ## Step 8: Report to user
 
@@ -503,4 +559,5 @@ This is typically only needed if the instructions themselves are clarified witho
 
 1. Remove the block between `<!-- gyeol:begin -->` and `<!-- gyeol:end -->` from the global config file.
 2. Remove the gyeol hooks from the harness settings file. For Claude Code this means removing every entry that references a script under `~/.config/gyeol/scripts/` across `SessionStart`, `PostToolUse`, `Stop`, and `SessionEnd`. For Gemini CLI / Codex, remove the equivalent gyeol-owned entries (see UNINSTALL.md for the full per-harness list). Leave the surrounding `hooks` structure in place if other hooks use it.
-3. Optionally remove `~/.config/gyeol/` (this will delete all memories permanently — confirm with user first).
+3. Remove the `gyeol-capture` skill directory and every `## gyeol run capture` section appended to orchestration skills (Step 7.5), if they were installed.
+4. Optionally remove `~/.config/gyeol/` (this will delete all memories permanently — confirm with user first).

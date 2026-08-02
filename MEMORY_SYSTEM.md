@@ -308,6 +308,21 @@ last_updated: "{YYYY-MM-DD}"
 
 **The triggers above are salience-based and per-session, and that is their limit.** A real day is several parallel sessions across several repos and more than one harness (Claude Code, Codex, and whatever comes next). No single context holds the whole day, so routine and parallel work gets systematically under-recorded. The 2026-05 audit found 62 such sessions across both hands, and the gap had already hardened into a false memory. Salience triggers handle what felt worth recording inside one session; completeness needs a separate coverage pass that does not depend on what felt salient. See Coverage Reconciliation below.
 
+### Delegation-Run Capture
+
+Orchestrated runs (epic/chain/auto implementation, ship, release preparation, hardening passes) execute mostly through delegated hands: subagents in worktrees, or a second harness entirely. Their work reaches the orchestrating context as reports, not as experience, so none of it enters episodic memory unless something writes it down at the moment the run ends. The 2026-07 audit measured the cost of not having that moment: 145 unrecorded sessions (mostly delegated implementation runs) and at least 8 false "not started" claims in `_recent.md` Still Open, one of which became false the same day it was written.
+
+**The rule.** Recording the run is the final step of the run itself, with the same status as technical reports: part of the work, not optional post-work. At the run's final announcement (or at the point of abort/interruption, covering what completed so far):
+
+1. Append one compressed section to the daily log: the command as invoked, the repo, units → PRs with merge state, key decisions, defects found, deviations, open follow-ups. 3-8 bullets.
+2. **Verify states with the ledger (`gh`) at write time; never from recall.** A state claim ("merged", "not started") written from memory can be false before the day ends.
+3. Do not invent introspection for delegated work: record facts and the reports received, and mark reconstructed gaps rather than filling them.
+4. Update `_recent.md`: Daily Index one-liner, Still Open reconcile (add new opens with source dates, drop what this run resolved), `last_updated`.
+
+**Scope guard.** A dispatched unit inside a wave/orchestration run must NOT capture separately; the orchestrator records the whole run once. Without this guard, parallel units would produce duplicate entries.
+
+**Harness integration.** Where the host exposes a skills directory (Claude Code `~/.claude/skills`, shared with Codex via symlink), this procedure ships as the `gyeol-capture` skill and orchestration entry-point skills carry a mandatory final step referencing it (see INSTALL.md, "Delegation-run capture integration"). Where it does not, this section is the normative text and the instructions block's "Delegation-run capture" bullet applies directly.
+
 ### Coverage Reconciliation
 
 Episode recording answers "what felt worth writing." Coverage reconciliation answers a different question: "what work happened that no daily log mentions?" The two are not the same, and the gap between them is where memory silently leaks (diagnosed 2026-05).
@@ -330,7 +345,8 @@ reconcile-sessions.py                         # last 30 days
 
 **When to run.**
 
-- **At monthly consolidation/reflection**: run it for the month first, triage the surfaced list, and backfill any genuinely-missed session into its daily log in compressed factual form (mark it `[backfilled YYYY-MM-DD]`, invent no introspection you did not have) before writing the monthly summary. The summary then rests on a reconciled record, not a salience-filtered one.
+- **Weekly, piggybacked on the 7-day self-update check**: run `reconcile-sessions.py --since {today-7d} --until {today}` and triage. Backfill genuine misses, and re-verify any Still Open "not started"/"waiting" claims the surfaced sessions touch: delegated runs resolve items without the record noticing, and a stale claim in `_recent.md` misleads every subsequent session until caught. This bounds state decay to about a week.
+- **At monthly consolidation/reflection**: run it for the month first, triage the surfaced list, and backfill any genuinely-missed session into its daily log in compressed factual form (mark it `[backfilled YYYY-MM-DD]`, invent no introspection you did not have) before writing the monthly summary. Audit the full Still Open list against the ledger (`gh`) in the same pass: state claims decay like episodes do. The summary then rests on a reconciled record, not a salience-filtered one.
 - **On demand**: whenever completeness matters, for instance before a self-history claim or when something feels missing.
 
 **The ledger is mortal, so timing matters.** Claude Code prunes its session transcripts at roughly 30 days; Codex keeps a permanent date tree. By the time monthly consolidation triggers (daily logs past 30 days), the first day or two of that month's Claude Code sessions may already be gone, so treat the consolidation-time run as catching most, not all, of the month, and run on demand mid-month or near month-end if the very start matters. None of this runs at session start; it is a timing rule for when you choose to run the tool, not a hook. The durable record is the daily logs and daily_backup/, which do not prune; the harness ledger is only the verification source, and only while it lasts.

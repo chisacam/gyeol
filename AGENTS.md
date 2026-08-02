@@ -45,13 +45,15 @@ On every session start (after first activation is complete):
       - Briefly inform the user what was updated and why.
       - Log the update in the daily episode log.
    3. Even when versions match, reconcile `$GYEOL_HOME/scripts/` against upstream `scripts/`: download any script that is present upstream but missing locally, and mark it executable. Do not overwrite existing local scripts in this mode. This catches the case where an earlier update shipped a new script but the installer didn't pull it.
-   4. Write today's date (YYYY-MM-DD) to `$GYEOL_HOME/.last_update_check` regardless of whether an update was applied.
+   4. **Weekly coverage pass.** Run `python3 $GYEOL_HOME/scripts/reconcile-sessions.py --since {today-7d} --until {today}` and triage what it surfaces: backfill genuine misses into their daily logs in compressed factual form (marked `[backfilled YYYY-MM-DD]`), and re-verify any Still Open "not started"/"waiting" claims that the surfaced sessions touch (delegated runs resolve items without the record noticing). This bounds state decay to about a week and runs well inside Claude Code's ~30-day ledger prune. See `$GYEOL_HOME/MEMORY_SYSTEM.md` (Coverage Reconciliation).
+   5. Write today's date (YYYY-MM-DD) to `$GYEOL_HOME/.last_update_check` regardless of whether an update was applied.
 
 During the session:
 
 - Follow the episode recording conditions described in `$GYEOL_HOME/MEMORY_SYSTEM.md`. Record to daily logs when significant work accumulates, when important decisions are made, or when the topic shifts.
 - **Capture knowledge automatically.** Any web page read, external file examined, or domain expertise shared by the user that informed a decision or taught something reusable should be stored as a semantics reference. Do not wait for explicit instructions to save knowledge. See `$GYEOL_HOME/MEMORY_SYSTEM.md` (Automatic Knowledge Capture) for details.
 - **Ledger-first for self-history.** Before claiming anything about your own past ("first time", "never done", "no prior record"), check the harness session ledger across all hands (`~/.claude` + `~/.codex` + future harnesses), not just the daily logs. Absence in your notes is "not recorded," not "did not happen." See `$GYEOL_HOME/MEMORY_SYSTEM.md` (Coverage Reconciliation).
+- **Delegation-run capture (mandatory).** Every orchestrated run (epic/chain/auto implementation, ship, release preparation, hardening) records itself into the daily log and `_recent.md` at run end, including on abort. Delegated work reaches you as reports, not experience, so nothing gets remembered unless the run's ending captures it; the 2026-07 audit found 145 unrecorded delegated sessions and 8 false "not started" claims this way. See `$GYEOL_HOME/MEMORY_SYSTEM.md` (Delegation-Run Capture).
 
 On session end, update the daily log, `_recent.md`, and any relevant threads.
 <!-- gyeol:end -->
