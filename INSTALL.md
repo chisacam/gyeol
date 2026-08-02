@@ -459,57 +459,21 @@ If your agent system does not support hooks at all, skip this step — the meta-
 
 ## Step 7.5: Delegation-run capture integration (skills-based harnesses)
 
-Hooks and the instructions block cover session-level capture, but orchestrated runs (epic/chain/auto implementation, ship, release preparation, hardening) mostly execute through delegated hands whose work never reaches episodic memory on its own. `$GYEOL_HOME/MEMORY_SYSTEM.md` "Delegation-Run Capture" is the normative procedure; where the host exposes a Claude-style skills directory, wire it into the skills themselves so the run records itself as its own final step.
+Hooks and the instructions block cover session-level capture, but orchestrated runs (epic/chain/auto implementation, ship, release preparation, hardening) mostly execute through delegated hands whose work never reaches episodic memory on its own. `$GYEOL_HOME/MEMORY_SYSTEM.md` "Delegation-Run Capture" is the normative procedure. Where the host exposes a Claude-style skills directory, gyeol ships that procedure as its own skill; the integration is deliberately **non-invasive**: gyeol installs and maintains exactly one skill directory of its own and never modifies any other skill. The instructions block (Step 6) tells the agent to follow the skill at run end when it is installed, and to skip when it is not.
 
-1. **Detect a skills directory.** Claude Code: `~/.claude/skills/`. Codex commonly shares it via a symlink (`~/.codex/skills -> ~/.claude/skills`), in which case one edit covers both harnesses. If no skills directory exists, skip this step; the instructions block bullet from Step 6 is the fallback.
+1. **Detect a skills directory.** Claude Code: `~/.claude/skills/`. Codex commonly shares it via a symlink (`~/.codex/skills -> ~/.claude/skills`); if only `~/.codex/skills` exists as a real directory, use that. If no skills directory exists, skip this step entirely; the weekly coverage pass is the backstop.
 
-2. **Install the `gyeol-capture` skill** at `<skills-dir>/gyeol-capture/SKILL.md` with the following content:
+2. **Install the `gyeol-capture` skill** from the repository (single source of truth: `skills/gyeol-capture/SKILL.md`):
 
-~~~markdown
----
-name: gyeol-capture
-description: Record an orchestrated run (epic/auto/chain implementation, ship, release preparation, hardening) into gyeol episodic memory at run end. Mandatory final step of orchestration entry-point skills; also applies on abort or interruption.
----
+```bash
+mkdir -p ~/.claude/skills/gyeol-capture
+curl -fsSL https://raw.githubusercontent.com/inureyes/gyeol/main/skills/gyeol-capture/SKILL.md \
+  -o ~/.claude/skills/gyeol-capture/SKILL.md
+```
 
-# gyeol Run Capture
+3. **Do not modify any other skill.** No orchestration skill carries a reference to `gyeol-capture`; the skill's own description plus the Step 6 instructions bullet are the trigger. A host without the skill simply skips the step.
 
-Why this exists: delegated runs execute through hands (subagents, Codex) whose experience never reaches episodic memory by itself. The 2026-07 retrospective found 145 unrecorded sessions and 8 false "not started" state claims in `_recent.md`; the root fixes were installation-level, but the remaining hole is procedural: nothing recorded the run at the moment it ended. This step closes that hole. It has the same status as technical reports: part of the run, not optional post-work.
-
-## When
-
-- After the run's final announcement/summary, before ending the turn.
-- On abort or interruption: capture what completed so far and mark the cut point explicitly.
-- SKIP only when running as a dispatched unit inside wave-runner / epic-impl / auto-impl. The orchestrator records the whole run; per-unit entries would duplicate it.
-
-## What to write
-
-1. Append one compressed section to `$GYEOL_HOME/memory/episodes/daily/{YYYY-MM-DD}.md` (create the file with `date`/`sessions` frontmatter if missing):
-   - Heading: `## {repo}: {command as invoked} ({outcome})`, e.g. `## mlxcel: /epic-impl 909 Stage A (완료)`.
-   - 3-8 bullets: units → PRs with merge state, key decisions, defects found, deviations from the plan, open follow-ups.
-   - **Verify merge/close states with `gh` at write time; do not write from recall.** Every state claim ("merged", "not started", "waiting") carries its verification moment implicitly; a claim written now can be false by tonight, so prefer resolvable facts (PR numbers, states) over judgments.
-   - Do not invent introspection for delegated work. Record facts and the reports received; mark reconstructed gaps rather than filling them.
-2. Update `$GYEOL_HOME/memory/episodes/_recent.md`:
-   - Add a one-line Daily Index entry pointing at the daily log.
-   - Reconcile Still Open: add new unresolved items (tagged with source date), remove items this run resolved.
-   - Refresh the `last_updated` frontmatter.
-
-## Style
-
-- Match the language of the existing daily logs; keep issue/PR titles in their original language.
-- Compressed and factual. The daily log is not a transcript; 3-8 bullets is the target.
-~~~
-
-3. **Append a mandatory final step to orchestration entry-point skills.** Candidates are the skills that run implementation, release, or hardening workflows end-to-end (typical names: `epic-impl`, `auto-impl`, `chain-impl`, `impl`, `ship`, `prepare-release`, `epic-postmerge-hardening`, `pr-implementation-hardening`, `review-merge-pr`). Do NOT add it to inner runner skills that orchestrators invoke (e.g. `wave-runner`); the entry point records the run once. Skip any file that already contains the string `gyeol run capture`, then append verbatim:
-
-~~~markdown
----
-
-## gyeol run capture (mandatory final step)
-
-After the final announcement (and on abort/interruption, covering what completed so far), follow the `gyeol-capture` skill: append this run's compressed entry to the gyeol daily log and update `_recent.md` (Daily Index one-liner + Still Open reconcile). Skip ONLY when running as a dispatched wave-runner unit; the orchestrator records the run. Same status as technical reports: part of the run, not optional post-work.
-~~~
-
-4. **Upgrade mode.** Re-check on every upgrade: re-create the skill if missing, diff it against the template above (replace unless the user hand-customized it), and re-append the step to any listed skill that lost it. Never duplicate; the `gyeol run capture` grep guard is the idempotency check.
+4. **Upgrade mode.** `update-gyeol.sh` reconciles the installed skill automatically (installs it when a skills directory exists and the skill is missing, refreshes it when upstream changed, and leaves user-customized copies to the diff-and-confirm flow of the core files). Manual upgrades follow the same rule: reconcile only `gyeol-capture/`, never neighboring skills.
 
 ## Step 8: Report to user
 
@@ -559,5 +523,5 @@ This is typically only needed if the instructions themselves are clarified witho
 
 1. Remove the block between `<!-- gyeol:begin -->` and `<!-- gyeol:end -->` from the global config file.
 2. Remove the gyeol hooks from the harness settings file. For Claude Code this means removing every entry that references a script under `~/.config/gyeol/scripts/` across `SessionStart`, `PostToolUse`, `Stop`, and `SessionEnd`. For Gemini CLI / Codex, remove the equivalent gyeol-owned entries (see UNINSTALL.md for the full per-harness list). Leave the surrounding `hooks` structure in place if other hooks use it.
-3. Remove the `gyeol-capture` skill directory and every `## gyeol run capture` section appended to orchestration skills (Step 7.5), if they were installed.
+3. Remove the `gyeol-capture` skill directory (Step 7.5) if one was installed. No other skill was modified, so nothing else needs cleanup.
 4. Optionally remove `~/.config/gyeol/` (this will delete all memories permanently — confirm with user first).

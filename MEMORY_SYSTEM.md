@@ -321,7 +321,7 @@ Orchestrated runs (epic/chain/auto implementation, ship, release preparation, ha
 
 **Scope guard.** A dispatched unit inside a wave/orchestration run must NOT capture separately; the orchestrator records the whole run once. Without this guard, parallel units would produce duplicate entries.
 
-**Harness integration.** Where the host exposes a skills directory (Claude Code `~/.claude/skills`, shared with Codex via symlink), this procedure ships as the `gyeol-capture` skill and orchestration entry-point skills carry a mandatory final step referencing it (see INSTALL.md, "Delegation-run capture integration"). Where it does not, this section is the normative text and the instructions block's "Delegation-run capture" bullet applies directly.
+**Harness integration (non-invasive).** Where the host exposes a skills directory (Claude Code `~/.claude/skills`, commonly shared with Codex via symlink), this procedure ships as the `gyeol-capture` skill, installed and kept current by gyeol itself (INSTALL.md Step 7.5, `update-gyeol.sh`). No other skill is ever modified: the session instructions tell the agent to follow the skill at run end when it is installed, and to skip when it is not, with the weekly coverage pass as the backstop. Where no skills directory exists, this section is the normative text.
 
 ### Coverage Reconciliation
 

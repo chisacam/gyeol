@@ -152,11 +152,44 @@ reconcile_scripts() {
   fi
 }
 
+# Harness skills integration (non-invasive): gyeol owns exactly one skill
+# directory, gyeol-capture, installed into a Claude-style skills dir when one
+# exists. It is installed when missing and refreshed when upstream changed.
+# No other skill is ever read or written. Hosts without a skills directory
+# skip silently; the instructions block treats the skill as optional.
+reconcile_skill() {
+  skill_name="gyeol-capture"
+  skills_dir=""
+  if [ -d "$HOME/.claude/skills" ]; then
+    skills_dir="$HOME/.claude/skills"
+  elif [ -d "$HOME/.codex/skills" ]; then
+    skills_dir="$HOME/.codex/skills"
+  fi
+  [ -n "$skills_dir" ] || return 0
+  tmp_skill=$(mktemp) || return 0
+  if ! curl -fsSL "$REPO_URL/skills/$skill_name/SKILL.md" -o "$tmp_skill" 2>/dev/null; then
+    rm -f "$tmp_skill"
+    return 0
+  fi
+  dest="$skills_dir/$skill_name/SKILL.md"
+  if [ ! -e "$dest" ]; then
+    mkdir -p "$skills_dir/$skill_name"
+    mv "$tmp_skill" "$dest"
+    echo "✓ Installed skill: $skill_name -> $skills_dir/$skill_name/"
+  elif ! diff -q "$dest" "$tmp_skill" > /dev/null 2>&1; then
+    mv "$tmp_skill" "$dest"
+    echo "↻ Refreshed skill: $skill_name"
+  else
+    rm -f "$tmp_skill"
+  fi
+}
+
 if ! compare_versions "$LOCAL_VERSION" "$REMOTE_VERSION"; then
   echo "Already up to date."
   echo ""
   echo "Reconciling scripts/ directory..."
   reconcile_scripts
+  reconcile_skill
   date +%Y-%m-%d > "$GYEOL_HOME/.last_update_check"
   echo "Last check: $(date)"
   exit 0
@@ -269,6 +302,8 @@ case "$response" in
       echo "✓ Updated scripts/$script"
     done
     rm -rf "$apply_tmp"
+
+    reconcile_skill
 
     # Update VERSION
     echo "$REMOTE_VERSION" > "$GYEOL_HOME/VERSION"
