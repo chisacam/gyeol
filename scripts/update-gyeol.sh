@@ -13,6 +13,14 @@
 #   scripts that exist upstream but are missing locally. Existing scripts
 #   are not touched in this mode. This handles cases where a prior update
 #   shipped a new script but the installer didn't pull it.
+# - In BOTH modes, also reconcile the gyeol-capture skill (when a skills
+#   directory exists) and the agent instructions block: AGENTS.md upstream
+#   is exactly the marker-wrapped block, and it is spliced between the
+#   gyeol:begin/gyeol:end markers of every harness config file that has
+#   them (~/.claude/CLAUDE.md, ~/.codex/AGENTS.md, ~/.gemini/GEMINI.md).
+#   Config files without the markers are never touched. Without this, a
+#   VERSION bump from this script would strand the block forever: the
+#   agent-driven self-update only fetches the block when versions differ.
 #
 # Usage: sh ~/.config/gyeol/scripts/update-gyeol.sh
 
@@ -184,12 +192,55 @@ reconcile_skill() {
   fi
 }
 
+# Agent instructions block reconciliation. Upstream AGENTS.md is exactly the
+# marker-wrapped block; splice it between the markers of each harness config
+# that already carries the pair. Never touches files without markers and
+# refuses to write when the splice result loses or duplicates a marker.
+reconcile_block() {
+  block_tmp=$(mktemp) || return 0
+  if ! curl -fsSL "$REPO_URL/AGENTS.md" -o "$block_tmp" 2>/dev/null; then
+    rm -f "$block_tmp"
+    return 0
+  fi
+  if ! grep -q "<!-- gyeol:begin -->" "$block_tmp" || ! grep -q "<!-- gyeol:end -->" "$block_tmp"; then
+    rm -f "$block_tmp"
+    return 0
+  fi
+  for cfg in "$HOME/.claude/CLAUDE.md" "$HOME/.codex/AGENTS.md" "$HOME/.gemini/GEMINI.md"; do
+    [ -f "$cfg" ] || continue
+    grep -q "<!-- gyeol:begin -->" "$cfg" || continue
+    grep -q "<!-- gyeol:end -->" "$cfg" || continue
+    cur_tmp=$(mktemp) || continue
+    sed -n '/<!-- gyeol:begin -->/,/<!-- gyeol:end -->/p' "$cfg" > "$cur_tmp"
+    if diff -q "$cur_tmp" "$block_tmp" > /dev/null 2>&1; then
+      rm -f "$cur_tmp"
+      continue
+    fi
+    new_tmp=$(mktemp) || { rm -f "$cur_tmp"; continue; }
+    awk -v blockfile="$block_tmp" '
+      /<!-- gyeol:begin -->/ && !done { while ((getline line < blockfile) > 0) print line; close(blockfile); skip=1; done=1; next }
+      /<!-- gyeol:end -->/ && skip { skip=0; next }
+      skip { next }
+      { print }
+    ' "$cfg" > "$new_tmp"
+    if [ "$(grep -c "<!-- gyeol:begin -->" "$new_tmp")" = "1" ] && [ "$(grep -c "<!-- gyeol:end -->" "$new_tmp")" = "1" ]; then
+      cat "$new_tmp" > "$cfg"
+      echo "↻ Refreshed gyeol instructions block: $cfg"
+    else
+      echo "Warning: block splice sanity check failed for $cfg (left untouched)"
+    fi
+    rm -f "$cur_tmp" "$new_tmp"
+  done
+  rm -f "$block_tmp"
+}
+
 if ! compare_versions "$LOCAL_VERSION" "$REMOTE_VERSION"; then
   echo "Already up to date."
   echo ""
   echo "Reconciling scripts/ directory..."
   reconcile_scripts
   reconcile_skill
+  reconcile_block
   date +%Y-%m-%d > "$GYEOL_HOME/.last_update_check"
   echo "Last check: $(date)"
   exit 0
@@ -304,6 +355,7 @@ case "$response" in
     rm -rf "$apply_tmp"
 
     reconcile_skill
+    reconcile_block
 
     # Update VERSION
     echo "$REMOTE_VERSION" > "$GYEOL_HOME/VERSION"
