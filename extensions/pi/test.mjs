@@ -164,6 +164,36 @@ await fire("tool_execution_end", { toolCallId: "t7", toolName: "write", isError:
 check("an ephemeral session still marks substantive work", existsSync(ephemeralFlag), true);
 rmSync(ephemeralFlag, { force: true });
 
+// --- memory sync on the session edges ---------------------------------------
+
+// sync-memory.sh is a no-op unless memory/ is a synced repo, which is the
+// state the checks above ran under. Give it a repo with an unreachable remote
+// so it has something to say, and confirm the warning reaches the agent
+// alongside the bootstrap rather than being swallowed.
+execFileSync("git", ["init", "--quiet", "--initial-branch=main", join(home, "memory")]);
+execFileSync("git", ["-C", join(home, "memory"), "config", "user.name", "test"]);
+execFileSync("git", ["-C", join(home, "memory"), "config", "user.email", "test@example.com"]);
+execFileSync("git", ["-C", join(home, "memory"), "remote", "add", "origin",
+                     join(home, "unreachable.git")]);
+
+await fire("session_start", { reason: "new" });
+const synced = await fire("before_agent_start", {});
+check(
+  "an unreachable memory remote is reported to the agent",
+  /gyeol memory sync/.test(synced?.message?.content ?? ""),
+  true,
+);
+check(
+  "the bootstrap still follows the sync warning",
+  /gyeol session bootstrap/.test(synced?.message?.content ?? ""),
+  true,
+);
+check(
+  "session work is committed even when the remote is gone",
+  execFileSync("git", ["-C", join(home, "memory"), "status", "--porcelain"]).toString().trim(),
+  "",
+);
+
 // --- missing installation --------------------------------------------------
 
 process.env.GYEOL_HOME = join(home, "does-not-exist");

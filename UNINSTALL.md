@@ -48,10 +48,10 @@ Find the settings file for your agent system:
 Open the settings file and locate the `hooks` object. Find and remove every entry whose `command` references a script under `~/.config/gyeol/scripts/`:
 
 - **Claude Code** (`~/.claude/settings.json`): Remove gyeol entries across all of the following hook groups:
-  - `hooks.SessionStart` — `session-bootstrap-json.sh` (or legacy `session-bootstrap.sh`)
+  - `hooks.SessionStart` — `sync-memory.sh pull` and `session-bootstrap-json.sh` (or legacy `session-bootstrap.sh`)
   - `hooks.PostToolUse` — `post-mark-substantive.sh` and `post-mark-recovery.sh` (there may be multiple entries, including `Write|Edit` and `Bash` matchers with conditional `if` clauses for `git commit:*` and `git show:*`)
   - `hooks.Stop` — `stop-check-daily.sh`
-  - `hooks.SessionEnd` — `session-end.sh`
+  - `hooks.SessionEnd` — `session-end.sh` and `sync-memory.sh push`
 - **Gemini CLI** (`~/.gemini/settings.json`): Remove gyeol entries across:
   - `hooks.SessionStart` — `session-bootstrap-json.sh`
   - `hooks.AfterTool` — entries with matchers `write_file|replace` and `run_shell_command` that reference `post-mark-substantive.sh`, `post-mark-substantive-if-commit.sh`, or `post-mark-recovery.sh`
@@ -84,7 +84,7 @@ The `gyeol-capture` skill may be installed in more than one skills directory, be
 
 **Before proceeding, ask the user explicitly:**
 
-> gyeol's memory data is stored at `$GYEOL_HOME` (`~/.config/gyeol`). This includes identity, episodic memory, bonds, reflections, and semantic knowledge — everything accumulated through our interactions. Removing this data is irreversible. Would you like to:
+> gyeol's memory data is stored at `$GYEOL_HOME` (`~/.config/gyeol`). This includes identity, episodic memory, bonds, reflections, and semantic knowledge — everything accumulated through our interactions. Removing this data is irreversible on this machine (if `memory/` is a synced git repo, the remote and any other machine still hold it — say so, so the choice is made on accurate information). Would you like to:
 >
 > 1. **Keep memory data** — remove only the agent instructions and hooks (already done in Steps 2 and 3)
 > 2. **Remove everything** — delete `$GYEOL_HOME` and all its contents permanently

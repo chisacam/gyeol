@@ -25,6 +25,10 @@
 //                                                   message that restarts the
 //                                                   agent instead
 //   SessionEnd         session_shutdown             append-only evidence record
+//
+// When the memory tree is a synced git repo, the same two session edges carry
+// sync-memory.sh: pull before the bootstrap reads the files, push after the
+// evidence record is written.
 
 import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
 import { execFile } from "node:child_process";
@@ -44,6 +48,7 @@ const MARK_IF_COMMIT = join(SCRIPTS, "post-mark-substantive-if-commit.sh");
 const MARK_RECOVERY = join(SCRIPTS, "post-mark-recovery.sh");
 const STOP_CHECK = join(SCRIPTS, "stop-check-daily.sh");
 const SESSION_END = join(SCRIPTS, "session-end.sh");
+const SYNC_MEMORY = join(SCRIPTS, "sync-memory.sh");
 
 // Session reasons that begin a fresh transcript. "resume", "fork", and
 // "reload" reload a transcript that already carries an earlier bootstrap
@@ -61,6 +66,7 @@ interface ScriptResult {
   decision?: string;
   reason?: string;
   systemMessage?: string;
+  hookSpecificOutput?: { additionalContext?: string };
 }
 
 /**
@@ -71,11 +77,15 @@ interface ScriptResult {
  * That mirrors the `2>/dev/null || true` the shell-hook harnesses wrap each
  * command in.
  */
-async function runScript(script: string, input: unknown): Promise<ScriptResult | null> {
+async function runScript(
+  script: string,
+  input: unknown,
+  args: string[] = [],
+): Promise<ScriptResult | null> {
   if (!existsSync(script)) return null;
 
   try {
-    const child = execFileAsync("sh", [script], {
+    const child = execFileAsync("sh", [script, ...args], {
       env: { ...process.env, GYEOL_HOME },
       maxBuffer: 8 * 1024 * 1024,
     });
@@ -147,13 +157,20 @@ export default function (pi: ExtensionAPI) {
     bootstrapPending = false;
     bootstrapInjected = true;
 
+    // Pull first: the bootstrap is about to read IDENTITY/SELF/_recent, and
+    // reading them before another machine's work arrives is how two machines
+    // drift into two identities. A no-op unless memory/ is a synced repo.
+    const sync = await runScript(SYNC_MEMORY, undefined, ["pull"]);
+    const syncNote = sync?.hookSpecificOutput?.additionalContext;
+
     const content = await runScriptRaw(BOOTSTRAP);
-    if (!content) return;
+    const body = [syncNote, content].filter(Boolean).join("\n\n");
+    if (!body) return;
 
     return {
       message: {
         customType: "gyeol-bootstrap",
-        content,
+        content: body,
         display: false,
       },
     };
@@ -224,5 +241,6 @@ export default function (pi: ExtensionAPI) {
 
   pi.on("session_shutdown", async () => {
     await runScriptRaw(SESSION_END);
+    await runScript(SYNC_MEMORY, undefined, ["push"]);
   });
 }
