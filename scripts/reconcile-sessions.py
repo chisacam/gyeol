@@ -3,7 +3,7 @@
 
 The coverage backstop the 2026-05 audit found missing. gyeol's episode
 recording is salience-triggered and single-thread, but real work is N parallel
-sessions across N repos and more than one harness (Claude Code, Codex, ...).
+sessions across N repos and more than one harness (Claude Code, Codex, pi, ...).
 No single context holds the whole day, so routine and parallel sessions get
 systematically under-recorded. This tool reconciles the daily logs against the
 objective session ledger that already exists: the harness jsonl files. That
@@ -15,7 +15,7 @@ external tools, thinking away from the keyboard) is structurally invisible here;
 completeness is knowing what you cannot see, not pretending to see it.
 
 The ledger is also mortal: Claude Code prunes its session transcripts at roughly
-30 days, while Codex keeps a permanent date tree. Run this within that window.
+30 days, while Codex and pi keep permanent trees. Run this within that window.
 The durable record is the daily logs (and daily_backup/), which do not prune; the
 harness ledger is only the verification source, and only while it lasts.
 
@@ -53,6 +53,16 @@ KST = timezone(timedelta(hours=9))
 # Covers both harnesses (CC tool_use names + Codex apply_patch + shared git/gh).
 EDIT_RE = re.compile(r'"name"\s*:\s*"(?:Write|Edit|MultiEdit|NotebookEdit)"|apply_patch')
 MUTATE_RE = re.compile(r'git commit|git push|git tag |gh pr create|gh pr merge|gh issue create|git merge ')
+
+# pi names its file-mutating tools in lowercase, which is too generic to match
+# against a raw transcript line without false positives. scan_pi therefore
+# detects them structurally, on parsed toolCall parts, rather than by regex.
+PI_EDIT_TOOLS = {"edit", "write", "multi_edit", "apply_patch"}
+
+# gyeol injects its own bootstrap and stop-check messages into pi transcripts.
+# They quote _recent.md, so letting them through would credit a session with
+# signals it never produced and mistake the injection for the user's prompt.
+PI_INJECTED_PREFIXES = ("=== gyeol session bootstrap", "gyeol memory circuit:")
 
 # Strong coverage signals: the concrete outputs a session PRODUCES, which daily
 # logs reliably cite. Extracted from narrow contexts on purpose. A bare `#1234`
@@ -284,6 +294,89 @@ def scan_codex(since: date, until: date):
         }
 
 
+def scan_pi(since: date, until: date):
+    root = Path.home() / ".pi" / "agent" / "sessions"
+    if not root.is_dir():
+        return
+    for f in root.glob("**/*.jsonl"):
+        cwd = None
+        session_id = None
+        first_dt = last_dt = None
+        prompt = None
+        substantive = False
+        signals: set[str] = set()
+        try:
+            for line in f.open(encoding="utf-8", errors="replace"):
+                if not line.strip():
+                    continue
+                injected = any(pfx in line for pfx in PI_INJECTED_PREFIXES)
+                # A mutating git/gh command is recognisable in any harness's raw
+                # line; file edits are not, so they are matched structurally below.
+                if MUTATE_RE.search(line) and not injected:
+                    substantive = True
+                if not injected:
+                    signals |= collect_signals(line)
+                try:
+                    d = json.loads(line)
+                except ValueError:
+                    continue
+                ts = d.get("timestamp")
+                if isinstance(ts, str):
+                    dd = kst_date(ts)
+                    if dd:
+                        first_dt = dd if first_dt is None else min(first_dt, dd)
+                        last_dt = dd if last_dt is None else max(last_dt, dd)
+                kind = d.get("type")
+                if kind == "session":
+                    # The header line carries the session's real id and cwd; the
+                    # filename is <timestamp>_<uuid>, so prefer the header.
+                    if isinstance(d.get("cwd"), str):
+                        cwd = d["cwd"]
+                    if isinstance(d.get("id"), str):
+                        session_id = d["id"]
+                    continue
+                if kind != "message":
+                    continue
+                msg = d.get("message") if isinstance(d.get("message"), dict) else {}
+                content = msg.get("content")
+                if not isinstance(content, list):
+                    continue
+                role = msg.get("role")
+                for part in content:
+                    if not isinstance(part, dict):
+                        continue
+                    if part.get("type") == "toolCall" and part.get("name") in PI_EDIT_TOOLS:
+                        substantive = True
+                    if (
+                        prompt is None
+                        and role == "user"
+                        and part.get("type") == "text"
+                        and not injected
+                    ):
+                        txt = part.get("text")
+                        if isinstance(txt, str) and txt.strip():
+                            prompt = txt
+        except OSError:
+            continue
+        if first_dt is None:
+            continue
+        sday, eday = first_dt, (last_dt or first_dt)
+        if eday < since or sday > until:
+            continue
+        yield {
+            "harness": "pi",
+            "file": str(f),
+            "session_id": session_id or f.stem,
+            "cwd": cwd or "?",
+            "repo": repo_of(cwd or ""),
+            "start": sday,
+            "end": eday,
+            "substantive": substantive,
+            "signals": signals,
+            "summary": clip(clean_prompt(prompt or "")),
+        }
+
+
 def load_daily_text(home: Path, since: date, until: date) -> dict[date, str]:
     """date -> daily-log text, from daily/ and daily_backup/ (cold archive)."""
     out: dict[date, str] = {}
@@ -358,7 +451,9 @@ def main(argv=None) -> int:
     home = gyeol_home()
     daily = load_daily_text(home, since, until)
 
-    sessions = list(scan_claude(since, until)) + list(scan_codex(since, until))
+    sessions = (list(scan_claude(since, until))
+                + list(scan_codex(since, until))
+                + list(scan_pi(since, until)))
     for s in sessions:
         s["bucket"] = classify(s, daily)
     sessions.sort(key=lambda s: (s["start"], s["harness"], s["repo"]))
@@ -369,6 +464,7 @@ def main(argv=None) -> int:
     covered = [s for s in sessions if s["bucket"] == "covered"]
     cc = sum(1 for s in sessions if s["harness"] == "claude")
     cx = sum(1 for s in sessions if s["harness"] == "codex")
+    cp = sum(1 for s in sessions if s["harness"] == "pi")
 
     if a.json:
         keep = unrecorded + judgment + supplementary + (covered if a.all else [])
@@ -386,7 +482,8 @@ def main(argv=None) -> int:
         return f"  {span}  {s['harness']:6}  {s['repo']:24}{sig}  {s['summary']}"
 
     print(f"gyeol session coverage reconciliation  {since} .. {until}")
-    print(f"harnesses: claude (~/.claude/projects) + codex (~/.codex/sessions)")
+    print("harnesses: claude (~/.claude/projects) + codex (~/.codex/sessions)"
+          " + pi (~/.pi/agent/sessions)")
     print(f"daily logs: {len(daily)} dated files (daily/ + daily_backup/)\n")
 
     print(f"UNRECORDED ({len(unrecorded)}) - substantive, signals absent from daily logs:")
@@ -403,7 +500,7 @@ def main(argv=None) -> int:
         print("\n".join(line(s) for s in covered) if covered else "  (none)")
 
     print()
-    print(f"scanned {len(sessions)} sessions (claude {cc} / codex {cx}); "
+    print(f"scanned {len(sessions)} sessions (claude {cc} / codex {cx} / pi {cp}); "
           f"covered {len(covered)}, unrecorded {len(unrecorded)}, "
           f"needs-judgment {len(judgment)}, supplementary {len(supplementary)}.")
     print("This surfaces; you judge episode-worth. Off-harness work (meetings, "

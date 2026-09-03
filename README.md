@@ -201,6 +201,7 @@ When encountering an unknown question, the system searches its knowledge base fi
 | [`scripts/fetch-source.py`](scripts/fetch-source.py) | Archive web content as markdown |
 | [`scripts/build-index.py`](scripts/build-index.py) | Rebuild semantic indices from frontmatter |
 | [`scripts/reconcile-sessions.py`](scripts/reconcile-sessions.py) | Surface work sessions missing from daily logs (coverage backstop) |
+| [`scripts/test-reconcile-pi.py`](scripts/test-reconcile-pi.py) | Test the pi ledger scanner against synthetic sessions |
 | [`extensions/pi/index.ts`](extensions/pi/index.ts) | pi harness integration (pi has no shell hooks; this extension calls the same scripts) |
 | [`extensions/pi/test.mjs`](extensions/pi/test.mjs) | Behavioural test for the pi integration |
 | `VERSION` | Current version in YY.M.DD date format |

@@ -489,6 +489,18 @@ Gyeol can be updated in two ways: automatically (on a 7-day cycle) or manually a
 
 During each session start, the agent checks `$GYEOL_HOME/.last_update_check`. If more than 7 days have passed, it fetches the upstream `VERSION` file. When a newer version is available, the agent fetches the updated core files, diffs them against local copies, and applies improvements while preserving local customizations. No user action is required.
 
+### Choosing an update source
+
+By default every update path reads from `inureyes/gyeol`. To track a fork instead — while waiting on a PR your install already depends on, say — write its raw base URL to `$GYEOL_HOME/.repo-url`:
+
+```bash
+echo https://raw.githubusercontent.com/<owner>/gyeol/main > ~/.config/gyeol/.repo-url
+```
+
+Both the agent-driven self-update and `update-gyeol.sh` resolve the source the same way: `GYEOL_REPO_URL` in the environment wins, then `.repo-url`, then upstream. `update-gyeol.sh` prints the source whenever it is not the default, so a forgotten fork is never silent. Delete the file to go back to upstream.
+
+Note that a fork must keep its `VERSION` ahead of the local install for the version-compare path to fire; reconciliation of scripts, the instructions block, the skill and the pi extension happens in either mode.
+
 ### Manual (on-demand)
 
 To check for and apply updates immediately, run:

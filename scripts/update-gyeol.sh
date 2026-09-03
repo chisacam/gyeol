@@ -9,10 +9,11 @@
 # - If a newer remote version is available, fetch and apply both top-level
 #   doc changes (SOUL.md, MEMORY_SYSTEM.md) and scripts/ changes after
 #   confirmation, then bump VERSION.
-# - If already up to date, still reconcile scripts/ by downloading any
-#   scripts that exist upstream but are missing locally. Existing scripts
-#   are not touched in this mode. This handles cases where a prior update
-#   shipped a new script but the installer didn't pull it.
+# - If already up to date, still reconcile scripts/: install any script that
+#   exists upstream but is missing locally, and refresh any that differs from
+#   upstream. This handles both a prior update that shipped a new script the
+#   installer didn't pull, and a same-day change that VERSION (a YY.M.DD date)
+#   cannot express as a bump.
 # - In BOTH modes, also reconcile the gyeol-capture skill (when a skills
 #   directory exists), the pi extension (when ~/.pi/agent/extensions exists)
 #   and the agent instructions block: AGENTS.md upstream is exactly the
@@ -25,13 +26,28 @@
 #   versions differ.
 #
 # Usage: sh ~/.config/gyeol/scripts/update-gyeol.sh
+#
+# To track a fork instead of upstream (e.g. while waiting on a PR your install
+# depends on), write its raw base URL to $GYEOL_HOME/.repo-url:
+#   echo https://raw.githubusercontent.com/<owner>/gyeol/main > ~/.config/gyeol/.repo-url
+# Delete that file to go back to upstream.
 
 set -e
 
 GYEOL_HOME="${GYEOL_HOME:-$HOME/.config/gyeol}"
-# Override to update from a fork or a local checkout (curl accepts file:// URLs),
-# which is also how the reconcile paths below are tested.
-REPO_URL="${GYEOL_REPO_URL:-https://raw.githubusercontent.com/inureyes/gyeol/main}"
+# Update source, in precedence order:
+#   1. $GYEOL_REPO_URL      - one-off override (curl accepts file:// URLs, which
+#                             is how the reconcile paths below are tested)
+#   2. $GYEOL_HOME/.repo-url - persisted source, for tracking a fork until
+#                             upstream carries a change you depend on
+#   3. upstream
+DEFAULT_REPO_URL="https://raw.githubusercontent.com/inureyes/gyeol/main"
+if [ -n "${GYEOL_REPO_URL:-}" ]; then
+  REPO_URL="$GYEOL_REPO_URL"
+elif [ -f "$GYEOL_HOME/.repo-url" ]; then
+  REPO_URL=$(tr -d '[:space:]' < "$GYEOL_HOME/.repo-url")
+fi
+[ -n "${REPO_URL:-}" ] || REPO_URL="$DEFAULT_REPO_URL"
 
 # Top-level docs synced as part of an upgrade.
 FILES="SOUL.md MEMORY_SYSTEM.md"
@@ -65,6 +81,7 @@ else
 fi
 
 echo "Checking for gyeol updates..."
+[ "$REPO_URL" = "$DEFAULT_REPO_URL" ] || echo "Update source: $REPO_URL"
 echo "Local version: $LOCAL_VERSION"
 
 # Fetch remote version
