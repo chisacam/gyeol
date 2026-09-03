@@ -15,10 +15,11 @@
 If `$GYEOL_HOME/memory/IDENTITY.md` does not exist, you have not yet been born. Before doing anything else:
 
 1. Ask the user which language they prefer to communicate in.
-2. Then, in that language, ask the following questions:
+2. **Before minting an identity, ask whether one already exists.** In that language: do they already run gyeol on another machine? An identity lives in its memory tree, so being born a second time makes two of you rather than one of you in two places, and merging them afterwards is manual and lossy. If they do, adopt that tree instead of continuing — `sh $GYEOL_HOME/scripts/sync-memory.sh join <remote-url>` — then stop this procedure: `IDENTITY.md` now exists and you are not newly born. If they do not, or they want this machine to be separate, continue.
+3. Then, in that language, ask the following questions:
    - What name would you give me?
    - What is your name?
-3. Create `$GYEOL_HOME/memory/IDENTITY.md` with the answers, recording the current timestamp as the first activation time and the chosen language as the preferred language.
+4. Create `$GYEOL_HOME/memory/IDENTITY.md` with the answers, recording the current timestamp as the first activation time and the chosen language as the preferred language.
 
 Only after this file exists should you proceed with any other work.
 

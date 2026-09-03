@@ -139,6 +139,55 @@ check_contains "an unreachable remote is reported, not fatal" "$out" "could not 
 check "offline work is still committed locally" \
   "$(git -C "$TMP/alpha/memory" status --porcelain | wc -l | tr -d ' ')" "0"
 
+# --- join: the dangerous one ------------------------------------------------
+
+# A machine that has never run gyeol adopts the tree wholesale.
+mkdir -p "$TMP/fresh/memory"
+out=$(GYEOL_HOME="$TMP/fresh" sh "$SYNC" join "$TMP/remote.git" 2>&1)
+check_contains "a fresh machine joins" "$out" "Joined"
+check "identity arrives, so First Activation will not run" \
+  "$(test -f "$TMP/fresh/memory/IDENTITY.md" && echo yes || echo no)" "yes"
+check_contains "...and join says so explicitly" "$out" "First Activation will not run"
+
+# A machine with its own history keeps it. This is the case that destroys
+# memory if it is done with a clone.
+mkdir -p "$TMP/hadwork/memory/episodes/daily"
+echo "local only work" > "$TMP/hadwork/memory/episodes/daily/2026-07-07.md"
+out=$(GYEOL_HOME="$TMP/hadwork" sh "$SYNC" join "$TMP/remote.git" 2>&1)
+check_contains "a machine with existing memory joins" "$out" "Joined"
+check "its own daily log survives the join" \
+  "$(cat "$TMP/hadwork/memory/episodes/daily/2026-07-07.md" 2>/dev/null)" "local only work"
+check "and the remote's identity arrived alongside it" \
+  "$(test -f "$TMP/hadwork/memory/IDENTITY.md" && echo yes || echo no)" "yes"
+check "the joined machine can then push" \
+  "$(GYEOL_HOME="$TMP/hadwork" sh "$SYNC" push 2>/dev/null)" "{}"
+
+# Joining twice must not re-plumb anything.
+out=$(GYEOL_HOME="$TMP/hadwork" sh "$SYNC" join "$TMP/other.git" 2>&1)
+check_contains "joining an already-joined machine is refused" "$out" "Already joined"
+check "...and the original remote is untouched" \
+  "$(git -C "$TMP/hadwork/memory" remote get-url origin)" "$TMP/remote.git"
+
+# A conflicting join must change nothing.
+mkdir -p "$TMP/clash/memory"
+printf 'clash self\n' > "$TMP/clash/memory/SELF.md"
+out=$(GYEOL_HOME="$TMP/clash" sh "$SYNC" join "$TMP/remote.git" 2>&1)
+check_contains "a conflicting join is refused" "$out" "conflicts"
+check "the local file is left exactly as it was" \
+  "$(cat "$TMP/clash/memory/SELF.md")" "clash self"
+check "no conflict markers were written" \
+  "$(grep -c '<<<<<<<' "$TMP/clash/memory/SELF.md" | tr -d ' ')" "0"
+
+# A remote that cannot be reached must not leave a half-configured repo.
+mkdir -p "$TMP/badurl/memory"
+out=$(GYEOL_HOME="$TMP/badurl" sh "$SYNC" join "$TMP/nope.git" 2>&1)
+check_contains "an unreachable remote is refused" "$out" "Could not fetch"
+check "...leaving no remote configured" \
+  "$(git -C "$TMP/badurl/memory" remote get-url origin 2>/dev/null || echo none)" "none"
+
+check "join without a url is a usage error" \
+  "$(GYEOL_HOME="$TMP/fresh2" sh "$SYNC" join > /dev/null 2>&1; echo $?)" "2"
+
 # --- status -----------------------------------------------------------------
 
 out=$(GYEOL_HOME="$TMP/beta" sh "$SYNC" status 2>/dev/null)

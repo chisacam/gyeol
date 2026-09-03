@@ -29,6 +29,7 @@ Classify the state:
 | No `$GYEOL_HOME` directory at all | **Fresh install** | Execute every step below unconditionally. Run First Activation at the end. |
 | `$GYEOL_HOME` exists, `VERSION` missing, `memory/IDENTITY.md` missing | **Broken / partial install** | Treat as fresh install but do NOT overwrite any files the user has manually created in `memory/`. Back up anything unexpected before writing. |
 | `$GYEOL_HOME` exists, `memory/IDENTITY.md` exists | **Upgrade** | Run in upgrade mode — see the rules below. **Do NOT re-run First Activation.** The agent has already been named. |
+| Any of the above, **and the user has gyeol on another machine** | **Join** | Install normally, but adopt the existing memory tree in Step 4.5 *before* any session starts. First Activation must not run: the identity already exists elsewhere, and minting a second one is the failure this step exists to prevent. |
 
 ### Upgrade mode rules
 
@@ -139,6 +140,36 @@ Script roles:
 ```bash
 mkdir -p ~/.config/gyeol/memory/{bonds,episodes/{daily,monthly,yearly,threads},reflections/{monthly,yearly},semantics/{summary,source/manual,_topics}}
 ```
+
+## Step 4.5: Join or create a shared memory tree
+
+The memory tree *is* the identity, so a person running gyeol on two machines has two identities that happen to share a name unless the trees are shared. This is the moment to decide, because it is the last one before First Activation can mint a duplicate.
+
+**If `memory/IDENTITY.md` already exists, skip this step** — this machine has an identity and Step 0 classified it as an upgrade.
+
+Otherwise ask the user, once:
+
+> Do you already run gyeol on another machine? If so I can adopt that memory here instead of starting a new identity — I'll need the git remote its `memory/` is pushed to.
+
+**If they have one**, adopt it:
+
+```bash
+sh ~/.config/gyeol/scripts/sync-memory.sh join <remote-url>
+```
+
+`join` never clones over local files. It commits whatever this machine already has, merges the remote in as an unrelated history, and abandons the merge untouched if the two sides conflict — a machine that has been running gyeol has daily logs of its own, and clobbering them is unrecoverable. It reports whether `IDENTITY.md` arrived, which is exactly the condition that decides whether First Activation runs. If it reports a conflict, resolve it by hand before continuing; do not proceed to a session with memory half-merged.
+
+**If this is their first machine**, say that memory can be shared later and move on. Nothing needs doing now: `memory/` becomes a git repo whenever they want one, and the sync hooks installed in Step 7 are silent no-ops until it does. Offer the one-time setup only if they ask for it now:
+
+```bash
+cd ~/.config/gyeol/memory
+git init -b main && git add -A && git commit -m "memory: initial"
+gh repo create gyeol-memory --private --source=. --push   # or any private remote
+```
+
+Creating a remote publishes memory, so never run this without the user explicitly asking for it.
+
+**If they say no**, do nothing. Do not ask again.
 
 ## Step 5: Detect the current agent system
 
@@ -491,7 +522,8 @@ After completing all steps, report the following to the user:
 2. Which global config file was updated (e.g., `~/.claude/CLAUDE.md`, `~/.gemini/GEMINI.md`, or `~/.codex/AGENTS.md`)
 3. Which hook was installed and in which settings file (e.g., SessionStart hook in `~/.claude/settings.json`, or BeforeModel hook in `~/.gemini/settings.json`)
 4. Whether this is a fresh install or an update
-5. Remind the user that on the next session start in this agent system, the First Activation procedure will run — they will be asked for a name and their own name
+5. Whether this machine joined an existing memory tree (and from which remote), started a fresh one, or is not sharing memory
+6. Remind the user that on the next session start in this agent system, the First Activation procedure will run — they will be asked for a name and their own name. **Do not say this if Step 4.5 adopted an existing tree**: `IDENTITY.md` is present, First Activation will not run, and the agent keeps the name it already has.
 
 ## Updating
 
@@ -553,19 +585,16 @@ git init -b main && git add -A && git commit -m "memory: initial"
 gh repo create gyeol-memory --private --source=. --push   # or any private remote
 ```
 
-**On each other machine**, do not clone over an existing `memory/` — a machine that has been running gyeol has daily logs of its own, and clobbering them is unrecoverable. Merge instead:
+**On each other machine**:
 
 ```bash
-cd ~/.config/gyeol
-git -C memory init -b main
-git -C memory remote add origin <remote-url>
-git -C memory fetch origin main
-git -C memory checkout -b main --track origin/main   # local files are kept
-git -C memory add -A && git -C memory commit -m "memory: <machine>"
-sh scripts/sync-memory.sh push
+sh ~/.config/gyeol/scripts/sync-memory.sh join <remote-url>
+sh ~/.config/gyeol/scripts/sync-memory.sh push
 ```
 
-Then reconcile by hand what genuinely overlaps — usually just `episodes/_recent.md`, whose Still Open section needs both machines' items rather than one machine's copy.
+`join` does not clone — cloning over a machine that has already run gyeol deletes daily logs only it has, unrecoverably. It commits what is there, merges the remote in as an unrelated history, and abandons the merge untouched on conflict. It then reports whether `IDENTITY.md` arrived, which is what decides whether First Activation runs on that machine.
+
+If both machines define the same file, `join` refuses and names it. In practice that is `episodes/_recent.md`, whose Still Open section wants both machines' items rather than one machine's copy — union it by hand, commit, then `push`.
 
 Once `memory/` is a repo with an `origin`, the hooks installed in Step 7 start syncing on their own: pull at session start, push at session end. Before then they are silent no-ops, which is why they are safe to install on a single-machine setup.
 

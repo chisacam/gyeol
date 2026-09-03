@@ -8,9 +8,10 @@
 # session end.
 #
 # Usage:
-#   sync-memory.sh pull     # SessionStart: bring in what other machines wrote
-#   sync-memory.sh push     # SessionEnd: publish what this session wrote
-#   sync-memory.sh status   # report without changing anything (default)
+#   sync-memory.sh join <url>  # first-time setup: adopt an existing memory tree
+#   sync-memory.sh pull        # SessionStart: bring in what other machines wrote
+#   sync-memory.sh push        # SessionEnd: publish what this session wrote
+#   sync-memory.sh status      # report without changing anything (default)
 #
 # The overriding safety rule is that a memory file must never contain conflict
 # markers. The bootstrap reads these files as identity; `<<<<<<< HEAD` in
@@ -56,6 +57,78 @@ emit_and_exit() {
 git_mem() {
   git -C "$MEM" "$@"
 }
+
+# --- join: the one mode that runs before a repo exists ----------------------
+#
+# Adopting an existing memory tree is the single destructive-if-wrong operation
+# in gyeol. A machine that has already run gyeol has daily logs of its own, and
+# the obvious move -- cloning the authoritative tree over it -- deletes them
+# unrecoverably. So join never clones: it commits whatever is here, then merges
+# the remote in as an unrelated history, and abandons the merge if it conflicts.
+
+if [ "$MODE" = "join" ]; then
+  REMOTE="${2:-}"
+  if [ -z "$REMOTE" ]; then
+    echo "usage: sync-memory.sh join <remote-url>" >&2
+    exit 2
+  fi
+  command -v git > /dev/null 2>&1 || { echo "git is required to join a memory tree." >&2; exit 2; }
+  mkdir -p "$MEM"
+
+  if git -C "$MEM" remote get-url origin > /dev/null 2>&1; then
+    echo "Already joined: $(git -C "$MEM" remote get-url origin)"
+    echo "Use pull/push, or remove the remote first to re-join elsewhere."
+    exit 0
+  fi
+
+  git -C "$MEM" rev-parse --git-dir > /dev/null 2>&1 || git -C "$MEM" init --quiet
+  git -C "$MEM" remote add origin "$REMOTE" || exit 2
+
+  # Which branch does the remote call its default?
+  # awk, not sed: BSD sed does not understand \t, so a sed class built on it
+  # silently swallows the tab and returns "main<TAB>HEAD" as the branch name.
+  REMOTE_BRANCH=$(git -C "$MEM" ls-remote --symref origin HEAD 2>/dev/null \
+    | awk '/^ref:/ { sub("refs/heads/", "", $2); print $2; exit }')
+  [ -n "$REMOTE_BRANCH" ] || REMOTE_BRANCH=main
+
+  if ! git -C "$MEM" fetch --quiet origin "$REMOTE_BRANCH" 2>/dev/null; then
+    git -C "$MEM" remote remove origin > /dev/null 2>&1 || true
+    echo "Could not fetch $REMOTE_BRANCH from $REMOTE. Nothing was changed." >&2
+    exit 2
+  fi
+
+  # Put this machine's existing memory on a commit first, so the merge below
+  # can only ever add to it.
+  git -C "$MEM" symbolic-ref HEAD "refs/heads/$REMOTE_BRANCH" > /dev/null 2>&1 || true
+  git -C "$MEM" add -A > /dev/null 2>&1
+  if ! git -C "$MEM" diff --cached --quiet 2>/dev/null; then
+    git -C "$MEM" commit --quiet --no-verify \
+      -m "memory: $(hostname -s 2>/dev/null || echo unknown) before joining" > /dev/null 2>&1
+  fi
+
+  if git -C "$MEM" rev-parse --verify HEAD > /dev/null 2>&1; then
+    if ! git -C "$MEM" merge --no-edit --quiet --allow-unrelated-histories FETCH_HEAD > /dev/null 2>&1; then
+      git -C "$MEM" merge --abort > /dev/null 2>&1 || true
+      echo "This machine's memory and the remote both define the same files, and the merge conflicts." >&2
+      echo "Nothing was overwritten. Resolve by hand in $MEM, then run: sync-memory.sh push" >&2
+      git -C "$MEM" diff --name-only HEAD FETCH_HEAD 2>/dev/null | sed 's/^/  conflicting: /' >&2
+      exit 1
+    fi
+  else
+    # Nothing local at all: this is a plain adoption.
+    git -C "$MEM" merge --no-edit --quiet FETCH_HEAD > /dev/null 2>&1
+  fi
+
+  git -C "$MEM" branch --set-upstream-to="origin/$REMOTE_BRANCH" "$REMOTE_BRANCH" > /dev/null 2>&1 || true
+  echo "Joined $REMOTE ($REMOTE_BRANCH)."
+  if [ -f "$MEM/IDENTITY.md" ]; then
+    echo "IDENTITY.md is present - First Activation will not run, and this machine keeps the existing identity."
+  else
+    echo "Warning: the remote carries no IDENTITY.md, so First Activation will still run here." >&2
+  fi
+  echo "Review the merge, then publish this machine's side with: sync-memory.sh push"
+  exit 0
+fi
 
 # --- preconditions, all of which are "not configured", not "broken" ---------
 
@@ -138,7 +211,7 @@ case "$MODE" in
     ;;
 
   *)
-    echo "usage: sync-memory.sh [pull|push|status]" >&2
+    echo "usage: sync-memory.sh [join <url>|pull|push|status]" >&2
     exit 0
     ;;
 esac
