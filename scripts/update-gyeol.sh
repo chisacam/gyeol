@@ -14,20 +14,24 @@
 #   are not touched in this mode. This handles cases where a prior update
 #   shipped a new script but the installer didn't pull it.
 # - In BOTH modes, also reconcile the gyeol-capture skill (when a skills
-#   directory exists) and the agent instructions block: AGENTS.md upstream
-#   is exactly the marker-wrapped block, and it is spliced between the
-#   gyeol:begin/gyeol:end markers of every harness config file that has
-#   them (~/.claude/CLAUDE.md, ~/.codex/AGENTS.md, ~/.gemini/GEMINI.md).
-#   Config files without the markers are never touched. Without this, a
-#   VERSION bump from this script would strand the block forever: the
-#   agent-driven self-update only fetches the block when versions differ.
+#   directory exists), the pi extension (when ~/.pi/agent/extensions exists)
+#   and the agent instructions block: AGENTS.md upstream is exactly the
+#   marker-wrapped block, and it is spliced between the gyeol:begin/gyeol:end
+#   markers of every harness config file that has them
+#   (~/.claude/CLAUDE.md, ~/.codex/AGENTS.md, ~/.gemini/GEMINI.md,
+#   ~/.pi/agent/AGENTS.md). Config files without the markers are never
+#   touched. Without this, a VERSION bump from this script would strand the
+#   block forever: the agent-driven self-update only fetches the block when
+#   versions differ.
 #
 # Usage: sh ~/.config/gyeol/scripts/update-gyeol.sh
 
 set -e
 
 GYEOL_HOME="${GYEOL_HOME:-$HOME/.config/gyeol}"
-REPO_URL="https://raw.githubusercontent.com/inureyes/gyeol/main"
+# Override to update from a fork or a local checkout (curl accepts file:// URLs),
+# which is also how the reconcile paths below are tested.
+REPO_URL="${GYEOL_REPO_URL:-https://raw.githubusercontent.com/inureyes/gyeol/main}"
 
 # Top-level docs synced as part of an upgrade.
 FILES="SOUL.md MEMORY_SYSTEM.md"
@@ -167,28 +171,67 @@ reconcile_scripts() {
 # skip silently; the instructions block treats the skill as optional.
 reconcile_skill() {
   skill_name="gyeol-capture"
-  skills_dir=""
-  if [ -d "$HOME/.claude/skills" ]; then
-    skills_dir="$HOME/.claude/skills"
-  elif [ -d "$HOME/.codex/skills" ]; then
-    skills_dir="$HOME/.codex/skills"
-  fi
-  [ -n "$skills_dir" ] || return 0
+  # Serve every harness that has a skills directory, not just the first one
+  # found. A machine running two harnesses shares one memory tree, so the
+  # capture procedure has to be reachable from both of them.
+  skills_dirs=""
+  for candidate in "$HOME/.claude/skills" "$HOME/.codex/skills" "$HOME/.pi/agent/skills"; do
+    [ -d "$candidate" ] || continue
+    skills_dirs="$skills_dirs $candidate"
+  done
+  [ -n "$skills_dirs" ] || return 0
   tmp_skill=$(mktemp) || return 0
   if ! curl -fsSL "$REPO_URL/skills/$skill_name/SKILL.md" -o "$tmp_skill" 2>/dev/null; then
     rm -f "$tmp_skill"
     return 0
   fi
-  dest="$skills_dir/$skill_name/SKILL.md"
+  for skills_dir in $skills_dirs; do
+    dest="$skills_dir/$skill_name/SKILL.md"
+    if [ ! -e "$dest" ]; then
+      mkdir -p "$skills_dir/$skill_name"
+      cp "$tmp_skill" "$dest"
+      chmod 644 "$dest"
+      echo "✓ Installed skill: $skill_name -> $skills_dir/$skill_name/"
+    elif ! diff -q "$dest" "$tmp_skill" > /dev/null 2>&1; then
+      cp "$tmp_skill" "$dest"
+      chmod 644 "$dest"
+      echo "↻ Refreshed skill: $skill_name -> $skills_dir/$skill_name/"
+    fi
+  done
+  rm -f "$tmp_skill"
+}
+
+# pi extension reconciliation (non-invasive, mirrors reconcile_skill): pi has
+# no shell-hook engine, so its gyeol integration ships as a TypeScript
+# extension that shells out to the same scripts every other harness uses.
+# gyeol owns exactly one extension directory, ~/.pi/agent/extensions/gyeol,
+# and never reads or writes a neighboring extension. Hosts without pi skip
+# silently.
+reconcile_pi_extension() {
+  ext_root="$HOME/.pi/agent/extensions"
+  [ -d "$ext_root" ] || return 0
+  tmp_ext=$(mktemp) || return 0
+  if ! curl -fsSL "$REPO_URL/extensions/pi/index.ts" -o "$tmp_ext" 2>/dev/null; then
+    rm -f "$tmp_ext"
+    return 0
+  fi
+  # Guard against a truncated or error-page download clobbering a good copy.
+  if ! grep -q "gyeol" "$tmp_ext"; then
+    rm -f "$tmp_ext"
+    return 0
+  fi
+  dest="$ext_root/gyeol/index.ts"
   if [ ! -e "$dest" ]; then
-    mkdir -p "$skills_dir/$skill_name"
-    mv "$tmp_skill" "$dest"
-    echo "✓ Installed skill: $skill_name -> $skills_dir/$skill_name/"
-  elif ! diff -q "$dest" "$tmp_skill" > /dev/null 2>&1; then
-    mv "$tmp_skill" "$dest"
-    echo "↻ Refreshed skill: $skill_name"
+    mkdir -p "$ext_root/gyeol"
+    mv "$tmp_ext" "$dest"
+    chmod 644 "$dest"
+    echo "✓ Installed pi extension: $dest"
+  elif ! diff -q "$dest" "$tmp_ext" > /dev/null 2>&1; then
+    mv "$tmp_ext" "$dest"
+    chmod 644 "$dest"
+    echo "↻ Refreshed pi extension: $dest"
   else
-    rm -f "$tmp_skill"
+    rm -f "$tmp_ext"
   fi
 }
 
@@ -206,7 +249,7 @@ reconcile_block() {
     rm -f "$block_tmp"
     return 0
   fi
-  for cfg in "$HOME/.claude/CLAUDE.md" "$HOME/.codex/AGENTS.md" "$HOME/.gemini/GEMINI.md"; do
+  for cfg in "$HOME/.claude/CLAUDE.md" "$HOME/.codex/AGENTS.md" "$HOME/.gemini/GEMINI.md" "$HOME/.pi/agent/AGENTS.md"; do
     [ -f "$cfg" ] || continue
     grep -q "<!-- gyeol:begin -->" "$cfg" || continue
     grep -q "<!-- gyeol:end -->" "$cfg" || continue
@@ -240,6 +283,7 @@ if ! compare_versions "$LOCAL_VERSION" "$REMOTE_VERSION"; then
   echo "Reconciling scripts/ directory..."
   reconcile_scripts
   reconcile_skill
+  reconcile_pi_extension
   reconcile_block
   date +%Y-%m-%d > "$GYEOL_HOME/.last_update_check"
   echo "Last check: $(date)"
@@ -355,6 +399,7 @@ case "$response" in
     rm -rf "$apply_tmp"
 
     reconcile_skill
+    reconcile_pi_extension
     reconcile_block
 
     # Update VERSION

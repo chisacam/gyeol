@@ -15,6 +15,7 @@ You are reading this document in one of the following agent systems:
 - **Claude Code** (in `~/.claude/`)
 - **Gemini CLI** (in `~/.gemini/`)
 - **OpenAI Codex** (in `~/.codex/`)
+- **pi** (in `~/.pi/agent/`)
 
 Remove gyeol from **only the agent system in which you are currently running this file**.
 
@@ -27,6 +28,7 @@ Identify your current agent system:
 | Claude Code | `~/.claude/CLAUDE.md` |
 | Gemini CLI | `~/.gemini/GEMINI.md` |
 | OpenAI Codex | `~/.codex/AGENTS.md` |
+| pi | `~/.pi/agent/AGENTS.md` |
 
 Open the global config file and remove everything between `<!-- gyeol:begin -->` and `<!-- gyeol:end -->` (inclusive). If the file is empty after removal, you may delete it.
 
@@ -39,6 +41,9 @@ Find the settings file for your agent system:
 | Claude Code | `~/.claude/settings.json` |
 | Gemini CLI | `~/.gemini/settings.json` |
 | OpenAI Codex | `~/.codex/hooks.json` |
+| pi | none — see Step 3.5 |
+
+**If you are in pi, skip to Step 3.5.** pi has no hook settings file; gyeol never writes to `~/.pi/agent/settings.json`, so there is nothing here to unmerge.
 
 Open the settings file and locate the `hooks` object. Find and remove every entry whose `command` references a script under `~/.config/gyeol/scripts/`:
 
@@ -62,6 +67,19 @@ For each agent, after removing the individual gyeol entries, also drop any hook 
 
 If `settings.json` becomes empty after cleanup, you may delete the file.
 
+## Step 3.5: Remove gyeol's extension and skill directories
+
+gyeol owns exactly one extension directory and one skill directory, and never modifies a neighboring one. Remove only these:
+
+```bash
+rm -rf ~/.pi/agent/extensions/gyeol          # pi integration (pi only)
+rm -rf ~/.claude/skills/gyeol-capture        # whichever of these exist
+rm -rf ~/.codex/skills/gyeol-capture
+rm -rf ~/.pi/agent/skills/gyeol-capture
+```
+
+The `gyeol-capture` skill may be installed in more than one skills directory, because a machine's harnesses share a single memory tree. Leave every other extension and skill untouched.
+
 ## Step 4: Ask user about memory data
 
 **Before proceeding, ask the user explicitly:**
@@ -84,6 +102,6 @@ rm -rf ~/.config/gyeol
 Report the following:
 
 1. Which global config file was cleaned
-2. Which hooks were removed and from which settings file
+2. Which hooks were removed and from which settings file, and which extension/skill directories were deleted
 3. Whether memory data was preserved or removed
 4. If memory was preserved, remind the user that `~/.config/gyeol/` still exists and can be re-activated by reinstalling gyeol
