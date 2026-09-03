@@ -55,6 +55,7 @@ When operating in upgrade mode, every subsequent step changes meaning: instead o
    - If the upstream block introduces a new script not present locally, append it.
    - If a local gyeol entry references a script that no longer appears in the upstream block, remove it.
    - After editing, validate with `python3 -m json.tool <settings_file> > /dev/null`. If validation fails, restore the file from the backup you took before editing and report the failure.
+  - pi has no hook settings to merge. Its integration is the single file `~/.pi/agent/extensions/gyeol/index.ts`: install it when missing, replace it when it differs from upstream, and leave every neighboring extension alone. Never edit `~/.pi/agent/settings.json` — the extension is auto-discovered, and listing it there as well loads it twice.
 7. **VERSION file** — only write the new `VERSION` after every other step above has succeeded. If the upgrade aborts halfway, the old version number should remain so the next invocation can retry from the same starting point.
 8. **Write a one-line entry in `memory/episodes/daily/<today>.md`** (creating the file if needed) recording: the upgrade direction (old version → new version), which files changed, which files the user confirmed/rejected, and any backups created. This is itself a memory event and should be captured for the same reason ordinary sessions are.
 
@@ -143,6 +144,7 @@ You are reading this document in one of the following agent systems:
 - **Claude Code** (running in `~/.claude/`)
 - **Gemini CLI** (running in `~/.gemini/`)
 - **OpenAI Codex** (running in `~/.codex/`)
+- **pi** (running in `~/.pi/agent/`)
 
 Install gyeol **only for the agent system in which you are currently running this file**.
 
@@ -153,12 +155,14 @@ Determine which agent is executing this installation:
 1. If you are in Claude Code → Treat as `~/.claude/` (Claude Code)
 2. If you are in Gemini CLI → Treat as `~/.gemini/` (Gemini CLI)
 3. If you are in OpenAI Codex → Treat as `~/.codex/` (OpenAI Codex)
+4. If you are in pi → Treat as `~/.pi/agent/` (pi)
 
 | Agent System | Global Config File |
 |-------------|-------------------|
 | Claude Code | `~/.claude/CLAUDE.md` |
 | Gemini CLI | `~/.gemini/GEMINI.md` |
 | OpenAI Codex | `~/.codex/AGENTS.md` |
+| pi | `~/.pi/agent/AGENTS.md` |
 
 **Rules:**
 
@@ -166,6 +170,7 @@ Determine which agent is executing this installation:
 - If the global config file already exists, prepend the gyeol block at the **top** of the file, followed by a blank line and the existing content. Do not duplicate if the gyeol block is already present (check for the marker `<!-- gyeol:begin -->`).
 - If the global config file does not exist, create it with the gyeol block as its sole content.
 - Ensure the parent directory exists before writing (e.g., `mkdir -p ~/.claude` for Claude Code)
+- For pi, write `~/.pi/agent/AGENTS.md` — **not** `~/.pi/agent/APPEND_SYSTEM.md`. Both are loaded, but `APPEND_SYSTEM.md` is appended to the system prompt while `AGENTS.md` is pi's documented global context file, which is what the marker-splice in `update-gyeol.sh` reconciles.
 
 ## Step 6: Agent instructions block
 
@@ -189,7 +194,7 @@ What the block mandates (summary; the fetched file is authoritative): session bo
 
 The global config file from Step 5 contains a bootstrap instruction (`Before anything else, read SOUL.md`), but some agent harnesses wrap global config files in an "optional reference context" frame, which causes the agent to treat the bootstrap as reference material rather than mandatory execution. To make the bootstrap robust, install agent hooks that deliver `SOUL.md`, `IDENTITY.md`, `SELF.md`, and `_recent.md` as first-class session context.
 
-For Claude Code, also install PostToolUse and Stop hooks that enforce the memory loop (substantive-session tracking, recovery-incident detection, and a hard block on stopping without today's daily log). These were added after the 2026-04-14 incident where task framing silently suppressed automatic memory capture during the `bssh v2.1.0` release — see `feedback_session_bootstrap.md`.
+For Claude Code and pi, also install the tool-use and stop-side integrations that enforce the memory loop (substantive-session tracking, recovery-incident detection, and — on Claude Code — a hard block on stopping without today's daily log; pi has no veto and re-engages the agent with a follow-up message instead). These were added after the 2026-04-14 incident where task framing silently suppressed automatic memory capture during the `bssh v2.1.0` release — see `feedback_session_bootstrap.md`.
 
 **Based on the agent system detected in Step 5, follow the corresponding block below.**
 
@@ -405,6 +410,40 @@ Mapping notes and gaps:
 
 After creating the file, validate it (`python3 -m json.tool ~/.codex/hooks.json`).
 
+### pi (if `~/.pi/agent/` exists)
+
+pi has **no shell-hook engine** — there is no `SessionStart` / `PostToolUse` / `Stop` event that runs a command and reads its stdout. What it has instead is a TypeScript extension API with a full lifecycle event set, so gyeol ships its pi integration as a single global extension that shells out to the same scripts every other harness uses. Enforcement logic (which commands count as substantive, what the daily-log demand says, when to nag softly) stays in `scripts/`, in one place, for all harnesses.
+
+Install it:
+
+```bash
+mkdir -p ~/.pi/agent/extensions/gyeol
+curl -fsSL https://raw.githubusercontent.com/inureyes/gyeol/main/extensions/pi/index.ts \
+  -o ~/.pi/agent/extensions/gyeol/index.ts
+```
+
+No settings change is needed: pi auto-discovers `~/.pi/agent/extensions/*/index.ts` as a global extension. Do not add it to `settings.json` as well, or it loads twice.
+
+Event mapping:
+
+| Claude Code hook | pi event | Notes |
+|---|---|---|
+| `SessionStart` | `session_start` + `before_agent_start` | `session_start` fires before a prompt exists and cannot return a message, so the injection is deferred to the session's first `before_agent_start` |
+| `PostToolUse` (`Write\|Edit`) | `tool_execution_end` | pi's `edit` / `write` tools are visible to the event, so pi uses the unconditional `post-mark-substantive.sh` the way Claude Code does — unlike Codex, where `apply_patch` bypasses hooks entirely |
+| `PostToolUse` (`Bash`) | `tool_execution_start` + `tool_execution_end` | `tool_execution_end` carries the result but **not** the args, so the shell command is captured on `_start`, keyed by `toolCallId`, and read back on `_end` |
+| `Stop` | `agent_settled` | see below |
+| `SessionEnd` | `session_shutdown` | append-only evidence record, same as Claude Code |
+
+Mapping notes and gaps:
+
+- **Once-per-session bootstrap.** `before_agent_start` is a **per-turn** event. The extension guards it with a pair of session-scoped flags reset on `session_start`, which is what keeps `session-bootstrap.sh`'s once-per-session contract; without the guard every turn would re-inject the full ~3.8k-token bootstrap. `session_start` carries a `reason` (`startup` / `reload` / `new` / `resume` / `fork`), and only `startup` and `new` trigger an injection — the other three reload a transcript that already contains one, exactly the duplicate-stacking case `session-bootstrap-json.sh` avoids on Claude Code's `source=resume`.
+- **`agent_settled`, not `agent_end`.** `agent_end` fires when a low-level run ends, but pi may still auto-retry, auto-compact, or continue with queued follow-ups. `agent_settled` is the point at which pi will not continue on its own — the true `Stop` analog.
+- **No veto.** pi has neither Claude's `decision: "block"` nor Gemini's `decision: "deny"`. When `stop-check-daily.sh` returns a blocking decision, the extension delivers the `reason` through `pi.sendMessage(..., { deliverAs: "followUp", triggerTurn: true })` instead: the agent picks the work back up rather than being refused an exit it never asked for. The effect on the memory loop is the same, and `stop-check-daily.sh`'s own nagged flag bounds it to one hard demand per session, so the follow-up cannot loop. A soft `systemMessage` reminder is surfaced through `ctx.ui.notify` instead.
+- **Session identity.** `/tmp` flag files are keyed by session id, which the extension derives from `ctx.sessionManager.getSessionFile()`. Ephemeral sessions (`--no-session`) have no file, so they fall back to a process-scoped id — their flags still pair up within the run.
+- **Failures are silent by design.** A missing script, a non-zero exit, or unparseable stdout is swallowed and never interrupts a turn, mirroring the `2>/dev/null || true` that the shell-hook harnesses wrap each command in.
+- **Prerequisite.** The marker scripts parse their stdin with `jq`; pi inherits that requirement from the shared scripts.
+- **Verifying.** `node extensions/pi/test.mjs` drives the extension through a stub pi harness against a throwaway `GYEOL_HOME` built from `scripts/`, asserting on the side effects the real scripts produce. It needs Node 22.6+ (native TypeScript type stripping) and `jq`, and skips cleanly without them.
+
 ### Other agent systems (if none of the above apply)
 
 If you are using a different agent system not listed above, first check if it has a configuration directory in `~/.agent-name/`. If so:
@@ -418,7 +457,7 @@ If your agent system does not support hooks at all, skip this step — the meta-
 
 Hooks and the instructions block cover session-level capture, but orchestrated runs (epic/chain/auto implementation, ship, release preparation, hardening) mostly execute through delegated hands whose work never reaches episodic memory on its own. `$GYEOL_HOME/MEMORY_SYSTEM.md` "Delegation-Run Capture" is the normative procedure. Where the host exposes a Claude-style skills directory, gyeol ships that procedure as its own skill; the integration is deliberately **non-invasive**: gyeol installs and maintains exactly one skill directory of its own and never modifies any other skill. The instructions block (Step 6) tells the agent to follow the skill at run end when it is installed, and to skip when it is not.
 
-1. **Detect a skills directory.** Claude Code: `~/.claude/skills/`. Codex commonly shares it via a symlink (`~/.codex/skills -> ~/.claude/skills`); if only `~/.codex/skills` exists as a real directory, use that. If no skills directory exists, skip this step entirely; the weekly coverage pass is the backstop.
+1. **Detect a skills directory.** Claude Code: `~/.claude/skills/`. Codex commonly shares it via a symlink (`~/.codex/skills -> ~/.claude/skills`); if only `~/.codex/skills` exists as a real directory, use that. pi: `~/.pi/agent/skills/` — pi discovers any directory containing a `SKILL.md` recursively, so the Claude-style layout works unchanged. If no skills directory exists, skip this step entirely; the weekly coverage pass is the backstop.
 
 2. **Install the `gyeol-capture` skill** from the repository (single source of truth: `skills/gyeol-capture/SKILL.md`):
 
@@ -430,7 +469,7 @@ curl -fsSL https://raw.githubusercontent.com/inureyes/gyeol/main/skills/gyeol-ca
 
 3. **Do not modify any other skill.** No orchestration skill carries a reference to `gyeol-capture`; the skill's own description plus the Step 6 instructions bullet are the trigger. A host without the skill simply skips the step.
 
-4. **Upgrade mode.** `update-gyeol.sh` reconciles the installed skill automatically (installs it when a skills directory exists and the skill is missing, refreshes it when upstream changed, and leaves user-customized copies to the diff-and-confirm flow of the core files). Manual upgrades follow the same rule: reconcile only `gyeol-capture/`, never neighboring skills.
+4. **Upgrade mode.** `update-gyeol.sh` reconciles the installed skill automatically (installs it when a skills directory exists and the skill is missing, refreshes it when upstream changed, and leaves user-customized copies to the diff-and-confirm flow of the core files) — into *every* harness skills directory present, since one machine's harnesses share a single memory tree. It reconciles `~/.pi/agent/extensions/gyeol/index.ts` on the same terms. Manual upgrades follow the same rule: reconcile only `gyeol-capture/` and gyeol's own extension directory, never neighboring skills or extensions.
 
 ## Step 8: Report to user
 
@@ -479,6 +518,6 @@ This is typically only needed if the instructions themselves are clarified witho
 ## Uninstalling
 
 1. Remove the block between `<!-- gyeol:begin -->` and `<!-- gyeol:end -->` from the global config file.
-2. Remove the gyeol hooks from the harness settings file. For Claude Code this means removing every entry that references a script under `~/.config/gyeol/scripts/` across `SessionStart`, `PostToolUse`, `Stop`, and `SessionEnd`. For Gemini CLI / Codex, remove the equivalent gyeol-owned entries (see UNINSTALL.md for the full per-harness list). Leave the surrounding `hooks` structure in place if other hooks use it.
-3. Remove the `gyeol-capture` skill directory (Step 7.5) if one was installed. No other skill was modified, so nothing else needs cleanup.
+2. Remove the gyeol hooks from the harness settings file. For Claude Code this means removing every entry that references a script under `~/.config/gyeol/scripts/` across `SessionStart`, `PostToolUse`, `Stop`, and `SessionEnd`. For Gemini CLI / Codex, remove the equivalent gyeol-owned entries (see UNINSTALL.md for the full per-harness list). Leave the surrounding `hooks` structure in place if other hooks use it. For pi there is nothing to unmerge — delete the `~/.pi/agent/extensions/gyeol/` directory instead.
+3. Remove the `gyeol-capture` skill directory (Step 7.5) from every skills directory it was installed into. No other skill or extension was modified, so nothing else needs cleanup.
 4. Optionally remove `~/.config/gyeol/` (this will delete all memories permanently — confirm with user first).

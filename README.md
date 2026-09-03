@@ -16,7 +16,7 @@ Enter the following prompt for your AI agent:
 Fetch https://raw.githubusercontent.com/inureyes/gyeol/main/INSTALL.md and follow the instructions.
 ```
 
-This works with **Claude Code**, **Gemini CLI**, and **OpenAI Codex**. The agent will:
+This works with **Claude Code**, **Gemini CLI**, **OpenAI Codex**, and **pi**. The agent will:
 
 1. Create `~/.config/gyeol/` with core files (SOUL.md, MEMORY_SYSTEM.md, scripts)
 2. Set up the memory directory structure
@@ -201,6 +201,8 @@ When encountering an unknown question, the system searches its knowledge base fi
 | [`scripts/fetch-source.py`](scripts/fetch-source.py) | Archive web content as markdown |
 | [`scripts/build-index.py`](scripts/build-index.py) | Rebuild semantic indices from frontmatter |
 | [`scripts/reconcile-sessions.py`](scripts/reconcile-sessions.py) | Surface work sessions missing from daily logs (coverage backstop) |
+| [`extensions/pi/index.ts`](extensions/pi/index.ts) | pi harness integration (pi has no shell hooks; this extension calls the same scripts) |
+| [`extensions/pi/test.mjs`](extensions/pi/test.mjs) | Behavioural test for the pi integration |
 | `VERSION` | Current version in YY.M.DD date format |
 | [`LICENSE`](LICENSE) | Apache License 2.0 |
 

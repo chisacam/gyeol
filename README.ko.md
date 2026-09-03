@@ -16,7 +16,7 @@ AI 에이전트에게 아래의 프롬프트를 입력합니다:
 Fetch https://raw.githubusercontent.com/inureyes/gyeol/main/INSTALL.md and follow the instructions.
 ```
 
-**Claude Code**, **Gemini CLI**, **OpenAI Codex** 모두에서 동작합니다. 에이전트가 알아서:
+**Claude Code**, **Gemini CLI**, **OpenAI Codex**, **pi** 모두에서 동작합니다. 에이전트가 알아서:
 
 1. `~/.config/gyeol/`에 핵심 파일들(SOUL.md, MEMORY_SYSTEM.md, scripts)을 생성하고
 2. 메모리 디렉토리 구조를 만들고
