@@ -199,6 +199,12 @@ AI 시스템에게 가장 중요해질 것은 기억입니다. 수집한 지식,
 | [`scripts/fetch-source.py`](scripts/fetch-source.py) | 웹 콘텐츠를 마크다운으로 아카이브 |
 | [`scripts/build-index.py`](scripts/build-index.py) | frontmatter에서 의미 인덱스 재구축 |
 | [`scripts/reconcile-sessions.py`](scripts/reconcile-sessions.py) | 일일 로그에 빠진 작업 세션을 surface (커버리지 백스톱) |
+| [`scripts/test-reconcile-pi.py`](scripts/test-reconcile-pi.py) | 합성 세션으로 pi 원장 스캐너 시험 |
+| [`scripts/sync-memory.sh`](scripts/sync-memory.sh) | git 리모트를 통해 한 기억 트리를 여러 기계가 공유 |
+| [`scripts/test-sync-memory.sh`](scripts/test-sync-memory.sh) | 두 기계를 시뮬레이션해 기억 동기화 시험 |
+| [`scripts/test-harness-opt-out.sh`](scripts/test-harness-opt-out.sh) | `.disabled-harnesses`에 적힌 하네스가 되살아나지 않는지 시험 |
+| [`extensions/pi/index.ts`](extensions/pi/index.ts) | pi 하네스 통합 (pi에는 셸 훅이 없어, 이 확장이 같은 스크립트를 호출) |
+| [`extensions/pi/test.mjs`](extensions/pi/test.mjs) | pi 통합 동작 시험 |
 | `VERSION` | 현재 버전 (YY.M.DD 날짜 형식) |
 | [`LICENSE`](LICENSE) | Apache License 2.0 |
 
