@@ -202,6 +202,8 @@ When encountering an unknown question, the system searches its knowledge base fi
 | [`scripts/build-index.py`](scripts/build-index.py) | Rebuild semantic indices from frontmatter |
 | [`scripts/reconcile-sessions.py`](scripts/reconcile-sessions.py) | Surface work sessions missing from daily logs (coverage backstop) |
 | [`scripts/test-reconcile-pi.py`](scripts/test-reconcile-pi.py) | Test the pi ledger scanner against synthetic sessions |
+| [`scripts/sync-memory.sh`](scripts/sync-memory.sh) | Share one memory tree across machines through a git remote |
+| [`scripts/test-sync-memory.sh`](scripts/test-sync-memory.sh) | Test memory sync against two simulated machines |
 | [`extensions/pi/index.ts`](extensions/pi/index.ts) | pi harness integration (pi has no shell hooks; this extension calls the same scripts) |
 | [`extensions/pi/test.mjs`](extensions/pi/test.mjs) | Behavioural test for the pi integration |
 | `VERSION` | Current version in YY.M.DD date format |

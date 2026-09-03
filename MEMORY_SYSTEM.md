@@ -522,6 +522,21 @@ Exception: when a new reference *directly contradicts* an existing synthesis, fl
 
 ## Procedures
 
+### Sharing One Memory Across Machines
+
+The memory tree is the identity, so two machines running gyeol against two trees are two identities that happen to share a name. `sync-memory.sh` keeps them one, through a git remote: `pull` at session start, `push` at session end. The scope is exactly `memory/`; everything else under `$GYEOL_HOME` is either reconciled from upstream or deliberately machine-local, so no ignore rules are needed.
+
+Setup and the machine-to-machine merge are in INSTALL.md ("Sharing memory across machines"). What matters operationally:
+
+- **Pull happens before the bootstrap reads.** Reading `IDENTITY.md` / `SELF.md` / `_recent.md` before another machine's work arrives is how divergence starts, so the pull is registered ahead of the bootstrap in the same session-start group.
+- **Uncommitted memory is committed before any merge.** A session that crashed, or one whose session-end never fired, leaves written memory in the working tree; it is committed first so a merge can never take it.
+- **A conflicting merge is abandoned, never left in the tree.** Conflict markers in a memory file would be read back as content — `<<<<<<< HEAD` inside `SELF.md` is a sentence about the self. The local copy is kept, the session continues on it, and the divergence is reported as session context so the gap is known rather than silently believed.
+- **Absence of sync is not an error.** Without a git remote every call is a no-op. Offline is the same: work commits locally and travels on the next successful sync.
+
+Two files carry essentially all the conflict risk, because everything else is partitioned by date or slug: `episodes/_recent.md` (one file, rewritten every session) and `episodes/daily/{YYYY-MM-DD}.md` when two machines work the same day. Merge `_recent.md` by unioning the Daily Index and Still Open sections rather than taking one side. The semantics indices (`_index.md`, `_tags.md`) are derived — regenerate them with `build-index.py` instead of merging.
+
+A shared tree also changes what the coverage backstop means. `stop-check-daily.sh` asks whether *today's* daily log exists, not whether this session is in it, so once several machines write into one tree the first session of the day satisfies the check for all of them. `reconcile-sessions.py` reads only the local harness ledgers, so run it on each machine — the daily logs it checks against are shared, but the sessions it checks are not.
+
 ### Adding a Reference
 
 1. Check `_index.md` for the last used ID.

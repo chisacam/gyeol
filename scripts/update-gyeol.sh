@@ -65,6 +65,7 @@ session-bootstrap-json.sh
 session-bootstrap.sh
 session-end.sh
 stop-check-daily.sh
+sync-memory.sh
 update-gyeol.sh"
 
 # Ensure gyeol is installed

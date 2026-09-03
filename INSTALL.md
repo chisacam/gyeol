@@ -29,6 +29,7 @@ Classify the state:
 | No `$GYEOL_HOME` directory at all | **Fresh install** | Execute every step below unconditionally. Run First Activation at the end. |
 | `$GYEOL_HOME` exists, `VERSION` missing, `memory/IDENTITY.md` missing | **Broken / partial install** | Treat as fresh install but do NOT overwrite any files the user has manually created in `memory/`. Back up anything unexpected before writing. |
 | `$GYEOL_HOME` exists, `memory/IDENTITY.md` exists | **Upgrade** | Run in upgrade mode — see the rules below. **Do NOT re-run First Activation.** The agent has already been named. |
+| Any of the above, **and the user has gyeol on another machine** | **Join** | Install normally, but adopt the existing memory tree in Step 4.5 *before* any session starts. First Activation must not run: the identity already exists elsewhere, and minting a second one is the failure this step exists to prevent. |
 
 ### Upgrade mode rules
 
@@ -115,8 +116,9 @@ curl -fsSL https://raw.githubusercontent.com/inureyes/gyeol/main/scripts/post-ma
 curl -fsSL https://raw.githubusercontent.com/inureyes/gyeol/main/scripts/post-mark-recovery.sh -o ~/.config/gyeol/scripts/post-mark-recovery.sh
 curl -fsSL https://raw.githubusercontent.com/inureyes/gyeol/main/scripts/stop-check-daily.sh -o ~/.config/gyeol/scripts/stop-check-daily.sh
 curl -fsSL https://raw.githubusercontent.com/inureyes/gyeol/main/scripts/session-end.sh -o ~/.config/gyeol/scripts/session-end.sh
+curl -fsSL https://raw.githubusercontent.com/inureyes/gyeol/main/scripts/sync-memory.sh -o ~/.config/gyeol/scripts/sync-memory.sh
 curl -fsSL https://raw.githubusercontent.com/inureyes/gyeol/main/scripts/update-gyeol.sh -o ~/.config/gyeol/scripts/update-gyeol.sh
-chmod +x ~/.config/gyeol/scripts/session-bootstrap.sh ~/.config/gyeol/scripts/session-bootstrap-json.sh ~/.config/gyeol/scripts/post-mark-substantive.sh ~/.config/gyeol/scripts/post-mark-substantive-if-commit.sh ~/.config/gyeol/scripts/post-mark-recovery.sh ~/.config/gyeol/scripts/stop-check-daily.sh ~/.config/gyeol/scripts/session-end.sh ~/.config/gyeol/scripts/update-gyeol.sh
+chmod +x ~/.config/gyeol/scripts/session-bootstrap.sh ~/.config/gyeol/scripts/session-bootstrap-json.sh ~/.config/gyeol/scripts/post-mark-substantive.sh ~/.config/gyeol/scripts/post-mark-substantive-if-commit.sh ~/.config/gyeol/scripts/post-mark-recovery.sh ~/.config/gyeol/scripts/stop-check-daily.sh ~/.config/gyeol/scripts/session-end.sh ~/.config/gyeol/scripts/update-gyeol.sh ~/.config/gyeol/scripts/sync-memory.sh
 ```
 
 Script roles:
@@ -130,6 +132,7 @@ Script roles:
 - `post-mark-recovery.sh` — PostToolUse hook that fires on `git show HEAD:` / `git checkout HEAD --` (file-restoration patterns). Marks the session as having a recovery incident so the Stop hook forces an `Incidents` subsection in the daily log. Motivated by the 2026-04-14 `debian/changelog` near-loss: recovery relief was erasing the save-worthy moment.
 - `stop-check-daily.sh` — Stop hook that blocks session end when the session was substantive but today's daily log is still missing, with a soft-reminder fallback if already nagged once. Enforces the memory loop that task framing was silently suppressing.
 - `session-end.sh` — SessionEnd hook (Claude Code) that records `{"end": "<UTC ISO 8601>", "cwd": "<path>"}` to `$GYEOL_HOME/.session-log.jsonl` whenever a session ends. Append-only, never blocks. Used as the **evidence channel** for the staleness check inside `session-bootstrap.sh` / `session-bootstrap-json.sh`: if `_recent.md`'s `last_updated` is more than a day behind, the next bootstrap surfaces the recorded session-end entries plus a directive telling the agent to retrospect and write missing daily logs *before* responding. Complements `stop-check-daily.sh` — Stop blocks exit on substantive sessions with no daily log, while `session-end.sh` + the staleness check recover gaps where Stop never fired (clean `/clear`, harness crash, sessions predating the hook install, or non-substantive sessions whose memory updates were nevertheless meaningful). Do not register on per-turn hooks. Do not register on Codex (no `session_end` event) or Gemini CLI (`SessionEnd` cannot inject context, but the evidence-recording role still works there if the upstream evolves; `update-gyeol` will wire it in if/when that lands).
+- `sync-memory.sh` — shares one memory tree across machines through a git remote: `pull` at session start, `push` at session end, `status` to inspect. A no-op unless `$GYEOL_HOME/memory` is a git repo with an `origin`, so installing it costs nothing on a single-machine setup. It never leaves conflict markers in a memory file — a conflicting merge is aborted and reported instead, because the bootstrap reads these files as identity and `<<<<<<< HEAD` in `SELF.md` would be read as something the agent believes about itself. See "Sharing memory across machines" below.
 - `update-gyeol.sh` — on-demand update runner (see "Updating" below).
 
 ## Step 4: Create memory directory structure
@@ -137,6 +140,36 @@ Script roles:
 ```bash
 mkdir -p ~/.config/gyeol/memory/{bonds,episodes/{daily,monthly,yearly,threads},reflections/{monthly,yearly},semantics/{summary,source/manual,_topics}}
 ```
+
+## Step 4.5: Join or create a shared memory tree
+
+The memory tree *is* the identity, so a person running gyeol on two machines has two identities that happen to share a name unless the trees are shared. This is the moment to decide, because it is the last one before First Activation can mint a duplicate.
+
+**If `memory/IDENTITY.md` already exists, skip this step** — this machine has an identity and Step 0 classified it as an upgrade.
+
+Otherwise ask the user, once:
+
+> Do you already run gyeol on another machine? If so I can adopt that memory here instead of starting a new identity — I'll need the git remote its `memory/` is pushed to.
+
+**If they have one**, adopt it:
+
+```bash
+sh ~/.config/gyeol/scripts/sync-memory.sh join <remote-url>
+```
+
+`join` never clones over local files. It commits whatever this machine already has, merges the remote in as an unrelated history, and abandons the merge untouched if the two sides conflict — a machine that has been running gyeol has daily logs of its own, and clobbering them is unrecoverable. It reports whether `IDENTITY.md` arrived, which is exactly the condition that decides whether First Activation runs. If it reports a conflict, resolve it by hand before continuing; do not proceed to a session with memory half-merged.
+
+**If this is their first machine**, say that memory can be shared later and move on. Nothing needs doing now: `memory/` becomes a git repo whenever they want one, and the sync hooks installed in Step 7 are silent no-ops until it does. Offer the one-time setup only if they ask for it now:
+
+```bash
+cd ~/.config/gyeol/memory
+git init -b main && git add -A && git commit -m "memory: initial"
+gh repo create gyeol-memory --private --source=. --push   # or any private remote
+```
+
+Creating a remote publishes memory, so never run this without the user explicitly asking for it.
+
+**If they say no**, do nothing. Do not ask again.
 
 ## Step 5: Detect the current agent system
 
@@ -210,6 +243,10 @@ Edit `~/.claude/settings.json` (create it if missing). Add (or merge into) a top
         "hooks": [
           {
             "type": "command",
+            "command": "sh \"$HOME/.config/gyeol/scripts/sync-memory.sh\" pull 2>/dev/null || echo '{}'"
+          },
+          {
+            "type": "command",
             "command": "sh \"$HOME/.config/gyeol/scripts/session-bootstrap-json.sh\" 2>/dev/null || echo '{}'"
           }
         ]
@@ -257,6 +294,10 @@ Edit `~/.claude/settings.json` (create it if missing). Add (or merge into) a top
           {
             "type": "command",
             "command": "sh \"$HOME/.config/gyeol/scripts/session-end.sh\" 2>/dev/null || true"
+          },
+          {
+            "type": "command",
+            "command": "sh \"$HOME/.config/gyeol/scripts/sync-memory.sh\" push 2>/dev/null || true"
           }
         ]
       }
@@ -273,6 +314,8 @@ What each hook enforces:
 - **PostToolUse (Write|Edit, or `git commit`)** → marks the session as substantive.
 - **PostToolUse (`git show`)** → marks the session as having a recovery event so the Stop hook demands an `Incidents` subsection.
 - **Stop** → if the session is substantive but today's daily log is missing, blocks stopping with a `decision: "block"` payload instructing the agent to write the daily log. A per-session nagged flag prevents infinite loops on retry.
+- **SessionStart (sync pull)** → registered *before* the bootstrap in the same group, because the bootstrap is about to read `IDENTITY.md` / `SELF.md` / `_recent.md` and reading them before another machine's work arrives is how two machines drift into two identities. A no-op on a single-machine install.
+- **SessionEnd (sync push)** → publishes what this session wrote. Registered after `session-end.sh` so the evidence record is included in the same commit.
 - **SessionEnd** → append-only evidence record. Writes `{"end": "<UTC ISO 8601>", "cwd": "<path>"}` to `$GYEOL_HOME/.session-log.jsonl`. Cannot block exit (SessionEnd fires after the agent has stopped) and is not meant to — its purpose is to leave a breadcrumb that the *next* SessionStart's staleness check can surface. Recovers the gap when Stop never fired: clean `/clear`, harness crash, the session predating hook installation, or non-substantive sessions whose memory updates were nevertheless meaningful.
 
 ### Gemini CLI (if `~/.gemini/` exists)
@@ -479,7 +522,8 @@ After completing all steps, report the following to the user:
 2. Which global config file was updated (e.g., `~/.claude/CLAUDE.md`, `~/.gemini/GEMINI.md`, or `~/.codex/AGENTS.md`)
 3. Which hook was installed and in which settings file (e.g., SessionStart hook in `~/.claude/settings.json`, or BeforeModel hook in `~/.gemini/settings.json`)
 4. Whether this is a fresh install or an update
-5. Remind the user that on the next session start in this agent system, the First Activation procedure will run — they will be asked for a name and their own name
+5. Whether this machine joined an existing memory tree (and from which remote), started a fresh one, or is not sharing memory
+6. Remind the user that on the next session start in this agent system, the First Activation procedure will run — they will be asked for a name and their own name. **Do not say this if Step 4.5 adopted an existing tree**: `IDENTITY.md` is present, First Activation will not run, and the agent keeps the name it already has.
 
 ## Updating
 
@@ -526,6 +570,49 @@ If only the agent instructions block (from INSTALL.md Step 6) needs updating but
 2. Replace the marker-delimited block in your global config file (`~/.claude/CLAUDE.md`, `~/.gemini/GEMINI.md`, or `~/.codex/AGENTS.md`), or simply run `sh ~/.config/gyeol/scripts/update-gyeol.sh`, which does this splice automatically
 
 This is typically only needed if the instructions themselves are clarified without a version bump.
+
+## Sharing memory across machines
+
+A person who works on two machines has one identity, not two. `$GYEOL_HOME/memory` is the whole of it; everything else under `$GYEOL_HOME` is either reconciled from the repository (`SOUL.md`, `MEMORY_SYSTEM.md`, `VERSION`, `scripts/`) or deliberately machine-local (`.repo-url`, `.last_update_check`, `.session-log.jsonl`). So the sync boundary needs no ignore rules: **share `memory/`, nothing else.**
+
+`sync-memory.sh` does this through a git remote — conflicts surface instead of becoming silent duplicate files, and the history is memory provenance, which is what you want the day a consolidation pass takes something it shouldn't have.
+
+**On the machine that already has memory** (the one holding `IDENTITY.md` — it is the authority):
+
+```bash
+cd ~/.config/gyeol/memory
+git init -b main && git add -A && git commit -m "memory: initial"
+gh repo create gyeol-memory --private --source=. --push   # or any private remote
+```
+
+**On each other machine**:
+
+```bash
+sh ~/.config/gyeol/scripts/sync-memory.sh join <remote-url>
+sh ~/.config/gyeol/scripts/sync-memory.sh push
+```
+
+`join` does not clone — cloning over a machine that has already run gyeol deletes daily logs only it has, unrecoverably. It commits what is there, merges the remote in as an unrelated history, and abandons the merge untouched on conflict. It then reports whether `IDENTITY.md` arrived, which is what decides whether First Activation runs on that machine.
+
+If both machines define the same file, `join` refuses and names it. In practice that is `episodes/_recent.md`, whose Still Open section wants both machines' items rather than one machine's copy — union it by hand, commit, then `push`.
+
+Once `memory/` is a repo with an `origin`, the hooks installed in Step 7 start syncing on their own: pull at session start, push at session end. Before then they are silent no-ops, which is why they are safe to install on a single-machine setup.
+
+### What conflicts, and what to do about it
+
+Almost everything is partitioned by date or slug and never collides. Two files are the exception:
+
+| File | Why | Resolution |
+|---|---|---|
+| `episodes/_recent.md` | One file, rewritten every session | Merge by hand: union the Daily Index entries, union Still Open, drop what both machines resolved |
+| `episodes/daily/{today}.md` | Both machines append on the same day | Keep both machines' Session sections; renumber |
+| `semantics/_index.md`, `_tags.md` | Generated | Do not merge — re-run `build-index.py` |
+
+Working one machine at a time makes this rare. Running sessions on two machines simultaneously makes `_recent.md` conflicts routine.
+
+When a merge does conflict, `sync-memory.sh` **aborts it** and reports the divergence rather than writing conflict markers into the tree. That is deliberate: the bootstrap reads these files as identity, and `<<<<<<< HEAD` inside `SELF.md` would be read as something the agent believes about itself. The local copy is left untouched and the session continues on it; the report tells the agent (and you) that memory is incomplete until it is resolved.
+
+Run `sh ~/.config/gyeol/scripts/sync-memory.sh status` at any time to see how far ahead or behind a machine is.
 
 ## Uninstalling
 
