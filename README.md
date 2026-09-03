@@ -204,6 +204,7 @@ When encountering an unknown question, the system searches its knowledge base fi
 | [`scripts/test-reconcile-pi.py`](scripts/test-reconcile-pi.py) | Test the pi ledger scanner against synthetic sessions |
 | [`scripts/sync-memory.sh`](scripts/sync-memory.sh) | Share one memory tree across machines through a git remote |
 | [`scripts/test-sync-memory.sh`](scripts/test-sync-memory.sh) | Test memory sync against two simulated machines |
+| [`scripts/test-harness-opt-out.sh`](scripts/test-harness-opt-out.sh) | Test that a harness listed in `.disabled-harnesses` is not reinstated |
 | [`extensions/pi/index.ts`](extensions/pi/index.ts) | pi harness integration (pi has no shell hooks; this extension calls the same scripts) |
 | [`extensions/pi/test.mjs`](extensions/pi/test.mjs) | Behavioural test for the pi integration |
 | `VERSION` | Current version in YY.M.DD date format |

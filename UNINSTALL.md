@@ -80,6 +80,20 @@ rm -rf ~/.pi/agent/skills/gyeol-capture
 
 The `gyeol-capture` skill may be installed in more than one skills directory, because a machine's harnesses share a single memory tree. Leave every other extension and skill untouched.
 
+## Step 3.6: Removing gyeol from one harness only
+
+Skip this step if the user is removing gyeol from the machine entirely — Step 5 deletes `$GYEOL_HOME`, so nothing survives to reinstall anything.
+
+Do it when gyeol stays installed in another harness (the common case: it is too heavy for one harness and wanted in another). Deleting the files is not enough there. `update-gyeol.sh` runs from whichever harness kept gyeol, and its three reconciliations — the instructions block, the `gyeol-capture` skill, the pi extension — are gated on nothing more than whether the harness directory exists. That directory outlives the removal because it holds the harness's *other* extensions and skills: `~/.pi/agent/extensions` still carries its neighbors after `~/.pi/agent/extensions/gyeol` is gone. So the deletion holds until the next check and then quietly comes back.
+
+Record the intent where a reconciliation can read it — append the harness id to `$GYEOL_HOME/.disabled-harnesses`, one per line:
+
+```bash
+echo pi >> ~/.config/gyeol/.disabled-harnesses
+```
+
+Valid ids are `claude`, `codex`, `gemini`, `pi`. `#` comments and surrounding whitespace are ignored; matching is on the whole line, so `pilot` does not disable `pi`. Both `update-gyeol.sh` and the agent-driven update path in `AGENTS.md` skip a listed harness — its config file, its skills directory and its extension directory alike. Delete the line to let it back in.
+
 ## Step 4: Ask user about memory data
 
 **Before proceeding, ask the user explicitly:**
@@ -103,5 +117,6 @@ Report the following:
 
 1. Which global config file was cleaned
 2. Which hooks were removed and from which settings file, and which extension/skill directories were deleted
-3. Whether memory data was preserved or removed
-4. If memory was preserved, remind the user that `~/.config/gyeol/` still exists and can be re-activated by reinstalling gyeol
+3. Whether the harness was recorded in `$GYEOL_HOME/.disabled-harnesses`, and that deleting that line lets gyeol back in
+4. Whether memory data was preserved or removed
+5. If memory was preserved, remind the user that `~/.config/gyeol/` still exists and can be re-activated by reinstalling gyeol

@@ -190,6 +190,8 @@ Determine which agent is executing this installation:
 3. If you are in OpenAI Codex → Treat as `~/.codex/` (OpenAI Codex)
 4. If you are in pi → Treat as `~/.pi/agent/` (pi)
 
+If the detected harness is named in `$GYEOL_HOME/.disabled-harnesses`, stop: gyeol was deliberately removed from this harness and is meant to stay out of it. Tell the user which file says so and let them delete the line if they want it back.
+
 | Agent System | Global Config File |
 |-------------|-------------------|
 | Claude Code | `~/.claude/CLAUDE.md` |
@@ -513,6 +515,8 @@ curl -fsSL https://raw.githubusercontent.com/inureyes/gyeol/main/skills/gyeol-ca
 3. **Do not modify any other skill.** No orchestration skill carries a reference to `gyeol-capture`; the skill's own description plus the Step 6 instructions bullet are the trigger. A host without the skill simply skips the step.
 
 4. **Upgrade mode.** `update-gyeol.sh` reconciles the installed skill automatically (installs it when a skills directory exists and the skill is missing, refreshes it when upstream changed, and leaves user-customized copies to the diff-and-confirm flow of the core files) — into *every* harness skills directory present, since one machine's harnesses share a single memory tree. It reconciles `~/.pi/agent/extensions/gyeol/index.ts` on the same terms. Manual upgrades follow the same rule: reconcile only `gyeol-capture/` and gyeol's own extension directory, never neighboring skills or extensions.
+
+   Every one of those reconciliations skips a harness named in `$GYEOL_HOME/.disabled-harnesses` (see [UNINSTALL.md](UNINSTALL.md), "Removing gyeol from one harness only"). Without that check the directory-exists gate reinstates a deleted integration, because the harness directory outlives the deletion — `~/.pi/agent/extensions` still holds its other extensions after `~/.pi/agent/extensions/gyeol` is gone.
 
 ## Step 8: Report to user
 

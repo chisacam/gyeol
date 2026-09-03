@@ -24,6 +24,9 @@
 #   touched. Without this, a VERSION bump from this script would strand the
 #   block forever: the agent-driven self-update only fetches the block when
 #   versions differ.
+# - Every one of those three reconciliations skips any harness named in
+#   $GYEOL_HOME/.disabled-harnesses, so a harness gyeol was deliberately
+#   removed from is not silently reinstated on the next check.
 #
 # Usage: sh ~/.config/gyeol/scripts/update-gyeol.sh
 #
@@ -182,6 +185,24 @@ reconcile_scripts() {
   fi
 }
 
+# Harness opt-out. UNINSTALL.md covers removing gyeol everywhere, and that
+# path needs no marker: it deletes $GYEOL_HOME, so nothing survives to
+# reinstall anything. Removing gyeol from *one* harness while keeping it in
+# another is the case that broke. The three reconciliations below are gated on
+# nothing more than whether the harness directory exists, and that directory
+# outlives the removal because it holds the harness's other extensions and
+# skills — ~/.pi/agent/extensions still carries its neighbors after
+# ~/.pi/agent/extensions/gyeol is gone. So the deletion held until the next
+# check and then quietly came back. This file is where the intent is recorded
+# so a reconciliation can read it: one harness id per line (claude, codex,
+# gemini, pi), '#' comments and surrounding whitespace ignored.
+DISABLED_FILE="$GYEOL_HOME/.disabled-harnesses"
+
+harness_disabled() {
+  [ -f "$DISABLED_FILE" ] || return 1
+  sed 's/#.*//' "$DISABLED_FILE" | tr -d ' \t' | grep -qx "$1"
+}
+
 # Harness skills integration (non-invasive): gyeol owns exactly one skill
 # directory, gyeol-capture, installed into a Claude-style skills dir when one
 # exists. It is installed when missing and refreshed when upstream changed.
@@ -193,9 +214,12 @@ reconcile_skill() {
   # found. A machine running two harnesses shares one memory tree, so the
   # capture procedure has to be reachable from both of them.
   skills_dirs=""
-  for candidate in "$HOME/.claude/skills" "$HOME/.codex/skills" "$HOME/.pi/agent/skills"; do
-    [ -d "$candidate" ] || continue
-    skills_dirs="$skills_dirs $candidate"
+  for candidate in "claude:$HOME/.claude/skills" "codex:$HOME/.codex/skills" "pi:$HOME/.pi/agent/skills"; do
+    candidate_harness=${candidate%%:*}
+    candidate_dir=${candidate#*:}
+    [ -d "$candidate_dir" ] || continue
+    if harness_disabled "$candidate_harness"; then continue; fi
+    skills_dirs="$skills_dirs $candidate_dir"
   done
   [ -n "$skills_dirs" ] || return 0
   tmp_skill=$(mktemp) || return 0
@@ -226,6 +250,7 @@ reconcile_skill() {
 # and never reads or writes a neighboring extension. Hosts without pi skip
 # silently.
 reconcile_pi_extension() {
+  if harness_disabled pi; then return 0; fi
   ext_root="$HOME/.pi/agent/extensions"
   [ -d "$ext_root" ] || return 0
   tmp_ext=$(mktemp) || return 0
@@ -267,8 +292,11 @@ reconcile_block() {
     rm -f "$block_tmp"
     return 0
   fi
-  for cfg in "$HOME/.claude/CLAUDE.md" "$HOME/.codex/AGENTS.md" "$HOME/.gemini/GEMINI.md" "$HOME/.pi/agent/AGENTS.md"; do
+  for entry in "claude:$HOME/.claude/CLAUDE.md" "codex:$HOME/.codex/AGENTS.md" "gemini:$HOME/.gemini/GEMINI.md" "pi:$HOME/.pi/agent/AGENTS.md"; do
+    cfg_harness=${entry%%:*}
+    cfg=${entry#*:}
     [ -f "$cfg" ] || continue
+    if harness_disabled "$cfg_harness"; then continue; fi
     grep -q "<!-- gyeol:begin -->" "$cfg" || continue
     grep -q "<!-- gyeol:end -->" "$cfg" || continue
     cur_tmp=$(mktemp) || continue
