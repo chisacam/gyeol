@@ -537,6 +537,26 @@ Two files carry essentially all the conflict risk, because everything else is pa
 
 A shared tree also changes what the coverage backstop means. `stop-check-daily.sh` asks whether *today's* daily log exists, not whether this session is in it, so once several machines write into one tree the first session of the day satisfies the check for all of them. `reconcile-sessions.py` reads only the local harness ledgers, so run it on each machine — the daily logs it checks against are shared, but the sessions it checks are not.
 
+### Provider Trust — Which Models May See Memory
+
+Memory is the one thing here that cannot be taken back once it has left. A repository can be cloned again; an identity that has been sent to a provider that trains on it is simply out. Free and free-tier model APIs generally reserve that right, so the memory tree is gated on **which provider is serving the session**, and every hook asks the gate before it emits, marks, demands, or syncs.
+
+`scripts/trust-gate.sh` holds the decision so the rule lives in one place for every harness. Sourced, it defines `gyeol_trust_denied` and `gyeol_trust_notice`; run directly (`sh $GYEOL_HOME/scripts/trust-gate.sh`) it prints `allow` or `deny` and the reason.
+
+**How the answer is reached.** `GYEOL_TRUST` wins when set (`0|off|no|deny|false` / `1|on|yes|allow|true`; an unrecognized value denies, because a typo is not consent). Otherwise Bedrock and Vertex count as the user's own account, an `ANTHROPIC_BASE_URL` is allowed only when its host is allowlisted (`GYEOL_TRUSTED_HOSTS` extends the list), and a session with no endpoint override is on the harness's own first-party API and allowed.
+
+**Why the environment and not the hook input:** no harness hook carries the model. Measured on Claude Code 2.1.263 — the `SessionStart` payload is `{session_id, transcript_path, cwd, hook_event_name, source}`, `UserPromptSubmit` adds `{prompt_id, permission_mode, prompt}`, and the hook process environment names neither model nor provider. What *is* visible is the endpoint the harness was started against, and in Claude Code that is fixed for the life of the process.
+
+**What a denied session gets.** The bootstrap emits a notice in place of the identity: memory is off, do not reconstruct it, do not read the gyeol home directory, nothing will be recorded. Telling the agent is not a courtesy — an agent that finds itself memoryless goes looking for the files, which is the leak the gate just prevented. The Stop gate is silent (a blocked exit is what sends the agent into the memory tree), the marker flags are not written, and `sync-memory.sh` does nothing in either direction.
+
+**What a denied session still does.** `session-end.sh` records that the session happened, marked `"trust":"denied"`. "My notes do not have it" and "it did not happen" are different facts; the record keeps the first from becoming the second, and the mark tells a later backfill there is no recoverable content behind it, so it does not invent any.
+
+**pi is the per-turn case.** Its model changes mid-session (`/frontier`, `/local`, the picker) and switching does not clear the conversation — pi resends the whole transcript on the next request, so withholding the injection is necessary and not sufficient. The pi extension therefore decides per turn from `ctx.model`, passes the verdict down as `GYEOL_TRUST`, and strips its own already-injected bootstrap messages from the outgoing context while the active model is untrusted. Its allowlist is `$GYEOL_HOME/trusted-providers` — one `provider/id` glob per line, `#` comments ignored, defaulting to `anthropic/*` when the file is absent. A loopback endpoint is trusted there and only there: in pi it means the weights run on this machine, while in Claude Code a `127.0.0.1` endpoint is a router forwarding somewhere unnamed.
+
+This gate covers what gyeol itself injects and reads. It does not police what the agent reads on its own — a `cat` of a memory file in an untrusted session still reaches the provider. Harnesses with a tool-permission layer should also deny reads under `$GYEOL_HOME` while memory is off.
+
+`sh scripts/test-trust-gate.sh` exercises all of it, each case against a control: the allow row has to produce the memory that the deny row withholds, or the deny row proves nothing.
+
 ### Adding a Reference
 
 1. Check `_index.md` for the last used ID.

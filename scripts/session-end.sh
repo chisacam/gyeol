@@ -37,10 +37,27 @@ GYEOL_HOME="${GYEOL_HOME:-$HOME/.config/gyeol}"
 
 LOG="$GYEOL_HOME/.session-log.jsonl"
 
+# --- Trust gate ---------------------------------------------------------------
+# Unlike the other hooks this one still runs when memory is withheld, and
+# deliberately: "my notes do not have it" and "it did not happen" are different
+# facts, and the session did happen. What changes is the record — it is marked,
+# so a later backfill knows there is no recoverable content behind it and does
+# not invent any. See scripts/trust-gate.sh.
+if [ -f "$GYEOL_HOME/scripts/trust-gate.sh" ]; then
+  . "$GYEOL_HOME/scripts/trust-gate.sh"
+else
+  gyeol_trust_denied() { case "${GYEOL_TRUST:-}" in 0|off|no|deny|false) return 0 ;; *) return 1 ;; esac; }
+fi
+
+TRUST_FIELD=""
+if gyeol_trust_denied; then
+  TRUST_FIELD=',"trust":"denied"'
+fi
+
 ts=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
 # Escape backslashes and double quotes in cwd for JSON safety.
 cwd_escaped=$(printf '%s' "${PWD:-unknown}" | sed 's/\\/\\\\/g; s/"/\\"/g')
 
-printf '{"end":"%s","cwd":"%s"}\n' "$ts" "$cwd_escaped" >> "$LOG" 2>/dev/null || true
+printf '{"end":"%s","cwd":"%s"%s}\n' "$ts" "$cwd_escaped" "$TRUST_FIELD" >> "$LOG" 2>/dev/null || true
 
 exit 0

@@ -71,10 +71,17 @@ const pi = {
 };
 await factory(pi);
 
+// A turn always has a model, and the extension refuses to guess when it does
+// not, so the stub carries one. `model` is swapped per case below.
 const ctx = {
   ui: { notify: (text, level) => notifications.push({ text, level }) },
   sessionManager: { getSessionFile: () => `/tmp/pi-sessions/${SESSION_ID}.jsonl` },
+  model: { provider: "anthropic", id: "claude-opus-5" },
+  modelRegistry: { getProviderAuth: (id) => (id === "mtplx" ? { baseUrl: "http://127.0.0.1:8000/v1" } : undefined) },
 };
+
+/** A context whose active model is whatever this case needs. */
+const withModel = (provider, id) => ({ ...ctx, model: { provider, id } });
 
 const fire = (name, event, context = ctx) => handlers.get(name)(event, context);
 
@@ -207,6 +214,42 @@ check(
   false,
 );
 process.env.GYEOL_HOME = home;
+
+// --- provider trust --------------------------------------------------------
+// Each case has its control: the same call on a trusted model has to produce
+// the thing that is being withheld, or the deny row proves nothing.
+
+const untrusted = withModel("openrouter", "some-model:free");
+
+await fire("session_start", { reason: "startup" });
+const withheld = await fire("before_agent_start", {}, untrusted);
+check("an untrusted model gets no identity", /gyeol session bootstrap/.test(withheld?.message?.content ?? ""), false);
+check("it is told memory is withheld", /memory is withheld/.test(withheld?.message?.content ?? ""), true);
+check("the notice is not repeated next turn", Boolean(await fire("before_agent_start", {}, untrusted)), false);
+
+// Switching back mid-session: the bootstrap was deferred, not consumed.
+const restored = await fire("before_agent_start", {}, ctx);
+check("switching back to a trusted model delivers the identity", /gyeol session bootstrap/.test(restored?.message?.content ?? ""), true);
+
+// A local model is trusted without being listed, because it is this machine.
+await fire("session_start", { reason: "startup" });
+const local = await fire("before_agent_start", {}, withModel("mtplx", "qwen38"));
+check("a loopback provider is trusted", /gyeol session bootstrap/.test(local?.message?.content ?? ""), true);
+
+// What is already in the conversation goes back out on the next request.
+const messages = [
+  { role: "custom", customType: "gyeol-bootstrap", content: "IDENTITY" },
+  { role: "user", content: "hello" },
+];
+check("prior memory is stripped for an untrusted model", (await fire("context", { messages }, untrusted))?.messages?.length, 1);
+check("and left alone for a trusted one", await fire("context", { messages }, ctx), undefined);
+
+// The marker scripts obey the same verdict, through GYEOL_TRUST.
+clearFlags();
+await fire("tool_execution_end", { toolCallId: "t1", toolName: "edit", isError: false }, untrusted);
+check("an untrusted edit marks nothing", existsSync(flag("substantive")), false);
+await fire("tool_execution_end", { toolCallId: "t2", toolName: "edit", isError: false }, ctx);
+check("control: a trusted edit still marks the session", existsSync(flag("substantive")), true);
 
 console.log(`\n${passed} passed, ${failed} failed`);
 process.exitCode = failed ? 1 : 0;

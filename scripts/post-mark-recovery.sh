@@ -12,6 +12,24 @@
 
 set -eu
 
+GYEOL_HOME="${GYEOL_HOME:-$HOME/.config/gyeol}"
+
+# --- Trust gate ---------------------------------------------------------------
+# A provider that may train on what it receives gets no memory. See
+# scripts/trust-gate.sh. The fallback keeps the explicit opt-out working on an
+# install whose gate script has not arrived yet: a missing file must not read
+# as consent.
+if [ -f "$GYEOL_HOME/scripts/trust-gate.sh" ]; then
+  . "$GYEOL_HOME/scripts/trust-gate.sh"
+else
+  gyeol_trust_denied() { case "${GYEOL_TRUST:-}" in 0|off|no|deny|false) return 0 ;; *) return 1 ;; esac; }
+fi
+
+if gyeol_trust_denied; then
+  echo '{}'
+  exit 0
+fi
+
 INPUT=$(cat)
 SESSION_ID=$(printf '%s' "$INPUT" | jq -r '.session_id // empty')
 CMD=$(printf '%s' "$INPUT" | jq -r '.tool_input.command // empty')
