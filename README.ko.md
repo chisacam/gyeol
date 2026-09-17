@@ -200,8 +200,10 @@ AI 시스템에게 가장 중요해질 것은 기억입니다. 수집한 지식,
 | [`scripts/build-index.py`](scripts/build-index.py) | frontmatter에서 의미 인덱스 재구축 |
 | [`scripts/reconcile-sessions.py`](scripts/reconcile-sessions.py) | 일일 로그에 빠진 작업 세션을 surface (커버리지 백스톱) |
 | [`scripts/test-reconcile-pi.py`](scripts/test-reconcile-pi.py) | 합성 세션으로 pi 원장 스캐너 시험 |
+| [`scripts/machine-id.sh`](scripts/machine-id.sh) | 이 기계의 고정된 이름 — `hostname`은 네트워크를 따라 바뀌지만 이것은 바뀌지 않는다 |
 | [`scripts/sync-memory.sh`](scripts/sync-memory.sh) | git 리모트를 통해 한 기억 트리를 여러 기계가 공유 |
 | [`scripts/trust-gate.sh`](scripts/trust-gate.sh) | 이 세션을 맡은 프로바이더가 기억을 받아도 되는지 판정 |
+| [`scripts/test-machine-id.sh`](scripts/test-machine-id.sh) | 기기 id가 네트워크를 따라 바뀌지 않는지, 기기별 일일 로그와 함께 시험 |
 | [`scripts/test-sync-memory.sh`](scripts/test-sync-memory.sh) | 두 기계를 시뮬레이션해 기억 동기화 시험 |
 | [`scripts/test-harness-opt-out.sh`](scripts/test-harness-opt-out.sh) | `.disabled-harnesses`에 적힌 하네스가 되살아나지 않는지 시험 |
 | [`scripts/test-trust-gate.sh`](scripts/test-trust-gate.sh) | 신뢰되지 않는 프로바이더에게 기억이 가지 않는지, 각 항목마다 대조군과 함께 시험 |

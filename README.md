@@ -202,8 +202,10 @@ When encountering an unknown question, the system searches its knowledge base fi
 | [`scripts/build-index.py`](scripts/build-index.py) | Rebuild semantic indices from frontmatter |
 | [`scripts/reconcile-sessions.py`](scripts/reconcile-sessions.py) | Surface work sessions missing from daily logs (coverage backstop) |
 | [`scripts/test-reconcile-pi.py`](scripts/test-reconcile-pi.py) | Test the pi ledger scanner against synthetic sessions |
+| [`scripts/machine-id.sh`](scripts/machine-id.sh) | This machine's stable name — `hostname` moves with the network, this does not |
 | [`scripts/sync-memory.sh`](scripts/sync-memory.sh) | Share one memory tree across machines through a git remote |
 | [`scripts/trust-gate.sh`](scripts/trust-gate.sh) | Decide whether the provider serving this session may receive memory |
+| [`scripts/test-machine-id.sh`](scripts/test-machine-id.sh) | Test that the machine id holds still across networks, and the per-machine daily log |
 | [`scripts/test-sync-memory.sh`](scripts/test-sync-memory.sh) | Test memory sync against two simulated machines |
 | [`scripts/test-harness-opt-out.sh`](scripts/test-harness-opt-out.sh) | Test that a harness listed in `.disabled-harnesses` is not reinstated |
 | [`scripts/test-trust-gate.sh`](scripts/test-trust-gate.sh) | Test that an untrusted provider receives no memory, each case against a control |

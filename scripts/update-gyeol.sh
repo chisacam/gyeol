@@ -59,6 +59,7 @@ FILES="SOUL.md MEMORY_SYSTEM.md"
 # on the GitHub API (rate-limited) or directory listings.
 SCRIPTS="build-index.py
 fetch-source.py
+machine-id.sh
 maintain-recent.py
 reconcile-sessions.py
 post-mark-recovery.sh

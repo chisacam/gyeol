@@ -13,6 +13,7 @@ $GYEOL_HOME/
   scripts/
     build-index.py         # Regenerate semantic indices
     fetch-source.py        # Archive web content
+    machine-id.sh          # This machine's stable name (hostname moves; this does not)
     reconcile-sessions.py  # Surface sessions missing from daily logs (coverage backstop)
   memory/
     IDENTITY.md        # Birth certificate — name, first activation
@@ -20,8 +21,8 @@ $GYEOL_HOME/
     bonds/{slug}.md    # Understanding of beings I work with
     episodes/          # What I have experienced
       _recent.md               # Navigation index (7-day window)
-      daily/{YYYY-MM-DD}.md    # Raw session logs (30 days)
-      daily_backup/{YYYY-MM-DD}.md  # Raw logs after consolidation (cold archive, read on demand only)
+      daily/{YYYY-MM-DD}.{machine}.md    # Raw session logs, one per machine (30 days)
+      daily_backup/{YYYY-MM-DD}.{machine}.md  # Raw logs after consolidation (cold archive, read on demand only)
       monthly/{YYYY-MM}.md     # Consolidated (12 months)
       monthly_backup/{YYYY-MM}.md   # Monthly summaries after yearly consolidation (cold archive)
       yearly/{YYYY}.md         # Distilled (permanent)
@@ -194,9 +195,31 @@ last_updated: "{YYYY-MM-DD}"
 
 Episodic memory. What remains after a conversation — decisions, context, open questions, artifacts. Not the transcript, but the meaning formed through dialogue.
 
-### Daily Log — `daily/{YYYY-MM-DD}.md`
+### Daily Log — `daily/{YYYY-MM-DD}.{machine}.md`
 
 Per-date session record. Multiple sessions appended chronologically.
+
+**One log per machine per day.** The `{machine}` suffix comes from
+`sh $GYEOL_HOME/scripts/machine-id.sh`; write your own machine's file and never
+another's. Reading a date means reading every `{YYYY-MM-DD}*.md` under `daily/`,
+including the bare `{YYYY-MM-DD}.md` left by installs from before the split.
+
+The suffix exists because two machines appending to one dated file is not a
+merge git can do: the same region of the same file gets unrelated content on
+both sides, so *every* shared day conflicts. And a conflict here is sticky —
+`sync-memory.sh` aborts the merge rather than leave conflict markers in a file
+the bootstrap reads as identity, and because `push` merges before it pushes,
+every later pull and push aborts the same way until a human resolves it. One
+divergence therefore compounds for as long as it goes unattended (it ran eight
+days once, 15 commits against 11). Separate paths cannot conflict, so the
+append-only half of the problem disappears.
+
+What is **not** split is `_recent.md`. Its Still Open section is shared state:
+the whole point is that this machine sees what the other one closed. Sharding
+it would turn a loud merge conflict into a silent divergence, with each machine
+confidently reading a stale list of open items and nothing ever forcing the
+reconciliation. A conflict there is a feature — it is the thing that makes
+someone compare the two sides.
 
 ```markdown
 ---

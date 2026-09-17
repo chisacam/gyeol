@@ -20,6 +20,11 @@
 # noisy); the backstop is the periodic, harness-spanning reconcile-sessions.py
 # plus monthly-reflection triage. See MEMORY_SYSTEM.md "Coverage Reconciliation".
 #
+# The gap stops at the machine boundary, though: the log is per-machine
+# (`{date}.{machine}.md`), so another machine writing its own log does not
+# satisfy this one. Two machines appending to a single dated file is what made
+# every same-day log a merge conflict; separate paths cannot conflict.
+#
 # Input: Stop hook JSON on stdin (contains session_id).
 
 set -eu
@@ -58,13 +63,27 @@ INPUT=$(cat)
 SESSION_ID=$(printf '%s' "$INPUT" | jq -r '.session_id // empty')
 
 TODAY=$(date +%Y-%m-%d)
-DAILY_LOG="$GYEOL_HOME/memory/episodes/daily/${TODAY}.md"
+
+# One log per machine per day. `hostname` is not a machine's name — a VPN
+# rewrites it — so the id comes from scripts/machine-id.sh, with a fallback for
+# an install that has not received it yet.
+if [ -f "$GYEOL_HOME/scripts/machine-id.sh" ]; then
+  MACHINE=$(sh "$GYEOL_HOME/scripts/machine-id.sh" 2>/dev/null || echo unknown)
+else
+  MACHINE=$(hostname -s 2>/dev/null || echo unknown)
+fi
+[ -n "$MACHINE" ] || MACHINE=unknown
+
+DAILY_LOG="$GYEOL_HOME/memory/episodes/daily/${TODAY}.${MACHINE}.md"
+# Written before the split, by this machine, on a day that straddles the change.
+LEGACY_LOG="$GYEOL_HOME/memory/episodes/daily/${TODAY}.md"
 SUBSTANTIVE_FLAG="/tmp/gyeol_session_${SESSION_ID}.substantive"
 RECOVERY_FLAG="/tmp/gyeol_session_${SESSION_ID}.recovery"
 NAGGED_FLAG="/tmp/gyeol_session_${SESSION_ID}.nagged"
 
-# Case 1: daily log exists — clean up and pass.
-if [ -f "$DAILY_LOG" ]; then
+# Case 1: this machine's daily log exists — clean up and pass. The legacy
+# unsuffixed name counts too, so the day the split lands is not logged twice.
+if [ -f "$DAILY_LOG" ] || [ -f "$LEGACY_LOG" ]; then
   rm -f "$SUBSTANTIVE_FLAG" "$RECOVERY_FLAG" "$NAGGED_FLAG" 2>/dev/null || true
   echo '{}'
   exit 0
@@ -96,6 +115,6 @@ touch "$NAGGED_FLAG" 2>/dev/null || true
 jq -n --arg log "$DAILY_LOG" --arg hint "$RECOVERY_HINT" --arg dec "$BLOCK_DECISION" '{
   decision: $dec,
   reason: (
-    "gyeol memory circuit: this session was substantive (Write/Edit/commit detected) but today\u2019s daily log is missing at " + $log + ". Before stopping, write the daily log now: what you worked on, what decisions you made, what you learned, any open threads. Use the format from $GYEOL_HOME/memory/episodes/daily/ (frontmatter with date + sessions count, then Session sections with What Happened / Decisions Made / Artifacts). Also update episodes/_recent.md: append a one-line entry under today\u2019s date in the Daily Index section (pointing at the daily log \u2014 _recent.md is a navigation index, not a content store), reconcile the Still Open section (add new unresolved items, drop resolved ones, each tagged with source date), update the last_updated frontmatter, and prune any Daily Index entries now older than 7 days." + $hint + " This enforcement exists because task framing silently suppressed automatic memory capture on 2026-04-14 — see feedback_session_bootstrap.md. Do not treat this as optional."
+    "gyeol memory circuit: this session was substantive (Write/Edit/commit detected) but today\u2019s daily log is missing at " + $log + ". Before stopping, write the daily log now: what you worked on, what decisions you made, what you learned, any open threads. Use the format from $GYEOL_HOME/memory/episodes/daily/ (frontmatter with date + sessions count, then Session sections with What Happened / Decisions Made / Artifacts). Write that exact path \u2014 the log is per-machine so two machines never append to one file; do not drop the machine suffix. Also update episodes/_recent.md: append a one-line entry under today\u2019s date in the Daily Index section (pointing at the daily log \u2014 _recent.md is a navigation index, not a content store), reconcile the Still Open section (add new unresolved items, drop resolved ones, each tagged with source date), update the last_updated frontmatter, and prune any Daily Index entries now older than 7 days." + $hint + " This enforcement exists because task framing silently suppressed automatic memory capture on 2026-04-14 — see feedback_session_bootstrap.md. Do not treat this as optional."
   )
 }'

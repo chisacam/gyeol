@@ -29,6 +29,17 @@ GYEOL_HOME="${GYEOL_HOME:-$HOME/.config/gyeol}"
 MEM="$GYEOL_HOME/memory"
 MODE="${1:-status}"
 
+# This machine's stable name, for the commit trailer. Not `hostname`: a VPN or a
+# DHCP lease rewrites that, and a memory tree signed under a moving name cannot
+# be read back as "which machine wrote this". See scripts/machine-id.sh. The
+# fallback keeps an install working whose machine-id script has not arrived yet.
+machine_id() {
+  if [ -f "$GYEOL_HOME/scripts/machine-id.sh" ]; then
+    sh "$GYEOL_HOME/scripts/machine-id.sh" 2>/dev/null && return 0
+  fi
+  hostname -s 2>/dev/null || echo unknown
+}
+
 # --- Trust gate ---------------------------------------------------------------
 # A provider that may train on what it receives gets no memory. See
 # scripts/trust-gate.sh. The fallback keeps the explicit opt-out working on an
@@ -119,7 +130,7 @@ if [ "$MODE" = "join" ]; then
   git -C "$MEM" add -A > /dev/null 2>&1
   if ! git -C "$MEM" diff --cached --quiet 2>/dev/null; then
     git -C "$MEM" commit --quiet --no-verify \
-      -m "memory: $(hostname -s 2>/dev/null || echo unknown) before joining" > /dev/null 2>&1
+      -m "memory: $(machine_id) before joining" > /dev/null 2>&1
   fi
 
   if git -C "$MEM" rev-parse --verify HEAD > /dev/null 2>&1; then
@@ -167,7 +178,7 @@ commit_local() {
   git_mem diff --cached --quiet 2>/dev/null && return 0
   git_mem -c user.useConfigOnly=false \
     commit --quiet --no-verify \
-    -m "memory: $(hostname -s 2>/dev/null || echo unknown) $(date -u +%Y-%m-%dT%H:%M:%SZ)" \
+    -m "memory: $(machine_id) $(date -u +%Y-%m-%dT%H:%M:%SZ)" \
     > /dev/null 2>&1
 }
 

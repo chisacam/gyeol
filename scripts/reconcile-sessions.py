@@ -378,7 +378,12 @@ def scan_pi(since: date, until: date):
 
 
 def load_daily_text(home: Path, since: date, until: date) -> dict[date, str]:
-    """date -> daily-log text, from daily/ and daily_backup/ (cold archive)."""
+    """date -> daily-log text, from daily/ and daily_backup/ (cold archive).
+
+    A date can have several logs: one per machine (`{date}.{machine}.md`) plus,
+    from before the split, a bare `{date}.md`. Coverage is the union of all of
+    them — a session recorded on either machine is recorded.
+    """
     out: dict[date, str] = {}
     base = home / "memory" / "episodes"
     lo = since - timedelta(days=1)
@@ -386,8 +391,9 @@ def load_daily_text(home: Path, since: date, until: date) -> dict[date, str]:
     d = lo
     while d <= hi:
         for sub in ("daily", "daily_backup"):
-            p = base / sub / f"{d.isoformat()}.md"
-            if p.is_file():
+            for p in sorted((base / sub).glob(f"{d.isoformat()}*.md")):
+                if not p.is_file():
+                    continue
                 try:
                     out[d] = out.get(d, "") + p.read_text(encoding="utf-8", errors="replace")
                 except OSError:

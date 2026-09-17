@@ -107,6 +107,7 @@ curl -fsSL https://raw.githubusercontent.com/inureyes/gyeol/main/VERSION -o ~/.c
 mkdir -p ~/.config/gyeol/scripts
 curl -fsSL https://raw.githubusercontent.com/inureyes/gyeol/main/scripts/build-index.py -o ~/.config/gyeol/scripts/build-index.py
 curl -fsSL https://raw.githubusercontent.com/inureyes/gyeol/main/scripts/fetch-source.py -o ~/.config/gyeol/scripts/fetch-source.py
+curl -fsSL https://raw.githubusercontent.com/inureyes/gyeol/main/scripts/machine-id.sh -o ~/.config/gyeol/scripts/machine-id.sh
 curl -fsSL https://raw.githubusercontent.com/inureyes/gyeol/main/scripts/maintain-recent.py -o ~/.config/gyeol/scripts/maintain-recent.py
 curl -fsSL https://raw.githubusercontent.com/inureyes/gyeol/main/scripts/reconcile-sessions.py -o ~/.config/gyeol/scripts/reconcile-sessions.py
 curl -fsSL https://raw.githubusercontent.com/inureyes/gyeol/main/scripts/session-bootstrap.sh -o ~/.config/gyeol/scripts/session-bootstrap.sh
@@ -119,7 +120,7 @@ curl -fsSL https://raw.githubusercontent.com/inureyes/gyeol/main/scripts/session
 curl -fsSL https://raw.githubusercontent.com/inureyes/gyeol/main/scripts/sync-memory.sh -o ~/.config/gyeol/scripts/sync-memory.sh
 curl -fsSL https://raw.githubusercontent.com/inureyes/gyeol/main/scripts/trust-gate.sh -o ~/.config/gyeol/scripts/trust-gate.sh
 curl -fsSL https://raw.githubusercontent.com/inureyes/gyeol/main/scripts/update-gyeol.sh -o ~/.config/gyeol/scripts/update-gyeol.sh
-chmod +x ~/.config/gyeol/scripts/session-bootstrap.sh ~/.config/gyeol/scripts/session-bootstrap-json.sh ~/.config/gyeol/scripts/post-mark-substantive.sh ~/.config/gyeol/scripts/post-mark-substantive-if-commit.sh ~/.config/gyeol/scripts/post-mark-recovery.sh ~/.config/gyeol/scripts/stop-check-daily.sh ~/.config/gyeol/scripts/session-end.sh ~/.config/gyeol/scripts/update-gyeol.sh ~/.config/gyeol/scripts/sync-memory.sh ~/.config/gyeol/scripts/trust-gate.sh
+chmod +x ~/.config/gyeol/scripts/machine-id.sh ~/.config/gyeol/scripts/session-bootstrap.sh ~/.config/gyeol/scripts/session-bootstrap-json.sh ~/.config/gyeol/scripts/post-mark-substantive.sh ~/.config/gyeol/scripts/post-mark-substantive-if-commit.sh ~/.config/gyeol/scripts/post-mark-recovery.sh ~/.config/gyeol/scripts/stop-check-daily.sh ~/.config/gyeol/scripts/session-end.sh ~/.config/gyeol/scripts/update-gyeol.sh ~/.config/gyeol/scripts/sync-memory.sh ~/.config/gyeol/scripts/trust-gate.sh
 ```
 
 Script roles:

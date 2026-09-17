@@ -153,9 +153,12 @@ BEFORE responding to the user's first message:
    session-end records above as anchors. Do not fabricate detail you
    cannot verify.
 2. Write missing daily logs under
-   `$GYEOL_HOME/memory/episodes/daily/YYYY-MM-DD.md` for the dates you
-   can reconstruct, even if a single line per day. Empty days can be
-   marked as such.
+   `$GYEOL_HOME/memory/episodes/daily/YYYY-MM-DD.{machine}.md` for the
+   dates you can reconstruct, even if a single line per day. Empty days
+   can be marked as such. The machine suffix comes from
+   `sh $GYEOL_HOME/scripts/machine-id.sh` — one log per machine per day,
+   so two machines sharing this memory never append to one file. Reading
+   a date means reading every `YYYY-MM-DD*.md` it has.
 3. Update `_recent.md`'s `last_updated`, add Daily Index entries for the
    recovered dates (one line per session/topic, pointing at the daily
    log — `_recent.md` is a navigation index, not a content store), and
