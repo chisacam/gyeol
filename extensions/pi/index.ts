@@ -85,25 +85,16 @@ function globMatch(pattern: string, value: string): boolean {
   return new RegExp(`^${escaped}$`).test(value);
 }
 
-function baseUrlOf(ctx: ExtensionContext, provider: string): string | undefined {
-  const registry = ctx.modelRegistry as unknown as { getProviderAuth?: (id: string) => { baseUrl?: string } | undefined };
-  try {
-    return registry?.getProviderAuth?.(provider)?.baseUrl;
-  } catch {
-    return undefined;
-  }
-}
-
 /**
  * May this turn's model receive memory? A turn with no resolved model answers
  * no: "I could not tell" and "it is safe" are different answers, and only one
  * of them can be the default for something that cannot be un-sent.
  */
 function trustOf(ctx: ExtensionContext): { trusted: boolean; reason: string } {
-  const model = ctx.model as { provider?: string; id?: string } | undefined;
+  const model = ctx.model as { provider?: string; id?: string; baseUrl?: string } | undefined;
   if (!model?.provider || !model?.id) return { trusted: false, reason: "no model is resolved for this turn" };
   const full = `${model.provider}/${model.id}`;
-  const baseUrl = baseUrlOf(ctx, model.provider);
+  const baseUrl = model.baseUrl;
   if (baseUrl && /^https?:\/\/(127\.0\.0\.1|localhost|0\.0\.0\.0|\[::1\])([:/]|$)/.test(baseUrl)) {
     return { trusted: true, reason: `${full} runs on this machine` };
   }
