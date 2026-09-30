@@ -17,15 +17,15 @@ This skill is wired non-invasively: the gyeol session instructions say to follow
 
 ## What to write
 
-1. Append one compressed section to `$GYEOL_HOME/memory/episodes/daily/{YYYY-MM-DD}.md` (create the file with `date`/`sessions` frontmatter if missing):
+1. Append one compressed section to `$GYEOL_HOME/memory/episodes/daily/{YYYY-MM-DD}.{machine}.md`, where `{machine}` is the output of `sh $GYEOL_HOME/scripts/machine-id.sh` (create the file with `date`/`sessions` frontmatter if missing):
    - Heading: `## {repo}: {command as invoked} ({outcome})`.
    - 3-8 bullets: units → PRs with merge state, key decisions, defects found, deviations from the plan, open follow-ups.
    - **Verify merge/close states with `gh` at write time; do not write from recall.** A state claim ("merged", "not started", "waiting") written from memory can be false before the day ends, so prefer resolvable facts (PR numbers, states) over judgments.
    - Do not invent introspection for delegated work. Record facts and the reports received; mark reconstructed gaps rather than filling them.
-2. Update `$GYEOL_HOME/memory/episodes/_recent.md`:
+2. Update this machine's `$GYEOL_HOME/memory/episodes/_recent.{machine}.md` (same suffix):
    - Add a one-line Daily Index entry pointing at the daily log.
-   - Reconcile Still Open: add new unresolved items (tagged with source date), remove items this run resolved.
    - Refresh the `last_updated` frontmatter.
+3. Reconcile Still Open in the shared `$GYEOL_HOME/memory/episodes/_recent.md`: add new unresolved items (tagged with source date), remove items this run resolved. Never edit another machine's `_recent.{machine}.md`.
 
 ## Style
 

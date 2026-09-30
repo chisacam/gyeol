@@ -1,9 +1,17 @@
 #!/usr/bin/env python3
 """Maintain `_recent.md`: prune stale Daily Index entries, flag stale Weekly Checkpoint, guard against bloat.
 
+The recent index is two kinds of file. `_recent.md` is shared by every machine
+and holds Still Open and the Weekly Checkpoint. `_recent.{machine}.md` holds
+one machine's Daily Index and its `last_updated`, so the lines every session
+rewrites never land in a file another machine also rewrites.
+
 Run from session bootstrap. Idempotent and best-effort:
 
-- Silently prunes Daily Index entries dated more than 7 days before today.
+- Silently prunes Daily Index entries dated more than 7 days before today, in
+  this machine's file and in any Daily Index left in the shared file from
+  before the split. Never writes another machine's file: that would put the
+  shared-write conflict straight back.
 - If the most recent Weekly Checkpoint header is for a week ending more than
   7 days ago, prints a directive on stdout for the bootstrap to relay.
 - If `_recent.md` has drifted past its navigation-index role (size over a
@@ -11,18 +19,28 @@ Run from session bootstrap. Idempotent and best-effort:
   dump), prints a maintenance directive. Surfaces only; never auto-deletes.
 - Exits 0 always; never blocks bootstrap on parse errors or missing files.
 
+`--active` prints, one per line, the machine files the bootstrap should emit:
+this machine's first, then every other machine whose `last_updated` is inside
+the window. A dormant machine's index would be pruned to nothing anyway, so
+skipping the file is the same answer without writing it.
+
+`--machine NAME` overrides the id `scripts/machine-id.sh` would give.
+
 `_recent.md` is the navigation index, not a content store. This script does
-NOT touch the `last_updated` frontmatter; that field reflects substantive
+NOT touch the `last_updated` frontmatter (in the machine file); that field reflects substantive
 session activity, not maintenance ops.
 """
 from __future__ import annotations
 
+import argparse
 import os
 import re
+import subprocess
 import sys
 from datetime import date, datetime, timedelta
 from pathlib import Path
 
+LAST_UPDATED = re.compile(r"^last_updated:\s*['\"]?(\d{4}-\d{2}-\d{2})", re.MULTILINE)
 DATE_BULLET = re.compile(r"^- \*\*(\d{4}-\d{2}-\d{2})\*\*\s*$")
 SECTION_HEADER = re.compile(r"^## ")
 DAILY_INDEX_HEADER = re.compile(r"^## Daily Index\b")
@@ -46,6 +64,38 @@ def gyeol_home() -> Path:
     if sys.platform == "win32":
         return Path(os.environ.get("APPDATA", "")) / "gyeol"
     return Path.home() / ".config" / "gyeol"
+
+
+def machine_id(home: Path) -> str:
+    """Same id, and same fallbacks, as stop-check-daily.sh uses for the daily log."""
+    script = home / "scripts" / "machine-id.sh"
+    cmd = ["sh", str(script)] if script.exists() else ["hostname", "-s"]
+    try:
+        out = subprocess.run(cmd, capture_output=True, text=True, timeout=5).stdout.strip()
+    except Exception:
+        out = ""
+    return out or "unknown"
+
+
+def last_updated(path: Path):
+    try:
+        m = LAST_UPDATED.search(path.read_text(encoding="utf-8"))
+    except Exception:
+        return None
+    return parse_date(m.group(1)) if m else None
+
+
+def active_files(episodes: Path, machine: str, today: date) -> list[Path]:
+    own = episodes / f"_recent.{machine}.md"
+    cutoff = today - timedelta(days=WINDOW_DAYS - 1)
+    files = [own] if own.exists() else []
+    for path in sorted(episodes.glob("_recent.*.md")):
+        if path == own:
+            continue
+        updated = last_updated(path)
+        if updated is not None and updated >= cutoff:
+            files.append(path)
+    return files
 
 
 def parse_date(s: str):
@@ -137,7 +187,7 @@ def weekly_checkpoint_directive(text: str, today: date) -> str | None:
     )
 
 
-def recent_bloat_directive(text: str) -> str | None:
+def recent_bloat_directive(text: str, name: str = "_recent.md") -> str | None:
     """Surface _recent.md drift past its navigation-index role. Does not auto-edit."""
     reasons = []
     size = len(text.encode("utf-8"))
@@ -163,7 +213,7 @@ def recent_bloat_directive(text: str) -> str | None:
     if not reasons:
         return None
     return (
-        "_recent.md maintenance: " + "; ".join(reasons) + ". It is a navigation index, "
+        f"{name} maintenance: " + "; ".join(reasons) + ". It is a navigation index, "
         "not a content store. Compress per MEMORY_SYSTEM.md: Daily Index one line per "
         "session (detail stays in daily logs), triage Still Open (drop resolved, one line "
         "each), drop weekly checkpoints already consumed by a monthly reflection, and keep "
@@ -171,31 +221,53 @@ def recent_bloat_directive(text: str) -> str | None:
     )
 
 
-def main() -> int:
-    home = gyeol_home()
-    recent = home / "memory" / "episodes" / "_recent.md"
-    if not recent.exists():
-        return 0
+def prune_file(path: Path, today: date) -> str | None:
+    """Prune one file in place and return its (possibly pruned) text, or None."""
     try:
-        text = recent.read_text(encoding="utf-8")
+        text = path.read_text(encoding="utf-8")
     except Exception:
-        return 0
-
-    today = date.today()
+        return None
     new_text, dropped = prune_daily_index(text, today)
     if dropped > 0 and new_text != text:
         try:
-            recent.write_text(new_text, encoding="utf-8")
+            path.write_text(new_text, encoding="utf-8")
         except Exception:
-            new_text = text  # write failed; continue with original
+            return text  # write failed; continue with original
+    return new_text
 
-    directives = [
-        d for d in (
-            weekly_checkpoint_directive(new_text, today),
-            recent_bloat_directive(new_text),
-        )
-        if d
-    ]
+
+def main(argv: list[str] | None = None) -> int:
+    parser = argparse.ArgumentParser(add_help=False)
+    parser.add_argument("--active", action="store_true")
+    parser.add_argument("--machine")
+    try:
+        args = parser.parse_args(argv)
+    except SystemExit:
+        return 0
+
+    home = gyeol_home()
+    episodes = home / "memory" / "episodes"
+    today = date.today()
+    machine = args.machine or machine_id(home)
+
+    if args.active:
+        for path in active_files(episodes, machine, today):
+            print(path)
+        return 0
+
+    directives: list[str] = []
+    shared = episodes / "_recent.md"
+    if shared.exists():
+        text = prune_file(shared, today)
+        if text is not None:
+            directives += [d for d in (weekly_checkpoint_directive(text, today), recent_bloat_directive(text)) if d]
+    own = episodes / f"_recent.{machine}.md"
+    if own.exists():
+        text = prune_file(own, today)
+        if text is not None:
+            d = recent_bloat_directive(text, own.name)
+            if d:
+                directives.append(d)
     if directives:
         print("\n\n".join(directives))
     return 0

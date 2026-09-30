@@ -20,7 +20,8 @@ $GYEOL_HOME/
     SELF.md            # Living self-portrait, shaped by reflection
     bonds/{slug}.md    # Understanding of beings I work with
     episodes/          # What I have experienced
-      _recent.md               # Navigation index (7-day window)
+      _recent.md               # Shared navigation index: Still Open, Weekly Checkpoint
+      _recent.{machine}.md     # One machine's Daily Index + last_updated (7-day window)
       daily/{YYYY-MM-DD}.{machine}.md    # Raw session logs, one per machine (30 days)
       daily_backup/{YYYY-MM-DD}.{machine}.md  # Raw logs after consolidation (cold archive, read on demand only)
       monthly/{YYYY-MM}.md     # Consolidated (12 months)
@@ -214,12 +215,23 @@ divergence therefore compounds for as long as it goes unattended (it ran eight
 days once, 15 commits against 11). Separate paths cannot conflict, so the
 append-only half of the problem disappears.
 
-What is **not** split is `_recent.md`. Its Still Open section is shared state:
-the whole point is that this machine sees what the other one closed. Sharding
-it would turn a loud merge conflict into a silent divergence, with each machine
-confidently reading a stale list of open items and nothing ever forcing the
-reconciliation. A conflict there is a feature — it is the thing that makes
-someone compare the two sides.
+`_recent.md` is split along the same line, and only along it. Its Daily Index
+and `last_updated` are the same append-per-session shape as the daily log: every
+session prepends a dated line and bumps one frontmatter field, so two machines
+that both worked since the last sync conflicted every time, on lines that carry
+no shared meaning. Those move to `_recent.{machine}.md`, one file per machine,
+written only by that machine. The bootstrap reads all of them (skipping a
+machine idle for the whole window), so each machine still sees the other's
+days.
+
+Still Open and the Weekly Checkpoint stay in the shared `_recent.md`. Still
+Open is shared state: the whole point is that this machine sees what the other
+one closed. Sharding it would turn a loud merge conflict into a silent
+divergence, with each machine confidently reading a stale list of open items
+and nothing ever forcing the reconciliation. A conflict there is a feature — it
+is the thing that makes someone compare the two sides. What changes is how
+often it fires: only when both machines edited Still Open itself, not on every
+session.
 
 ```markdown
 ---
@@ -272,21 +284,29 @@ related_episodes: ["{YYYY-MM-DD}", ...]
 
 Threads differ from semantic topic syntheses. A topic synthesis is "what I know about X"; a thread is "what I have done with X." Knowledge vs. experience.
 
-### Recent — `_recent.md`
+### Recent — `_recent.md` and `_recent.{machine}.md`
 
-**Navigation index, not content.** The first file to read at session start to restore *where things are*, not *what was said*. Detail lives in daily logs; `_recent.md` answers "what's been happening, what's still open, where do I look." Loaded into every session bootstrap, so it pays a cost on every conversation — keep it light.
+**Navigation index, not content.** The first files to read at session start to restore *where things are*, not *what was said*. Detail lives in daily logs; the recent index answers "what's been happening, what's still open, where do I look." Loaded into every session bootstrap, so it pays a cost on every conversation — keep it light.
+
+It is two kinds of file (see Daily Logs above for why). Each machine writes only its own `_recent.{machine}.md`, with `{machine}` from `sh $GYEOL_HOME/scripts/machine-id.sh`, and never another machine's:
 
 ```markdown
 ---
 last_updated: "{YYYY-MM-DD}"
 ---
 
-# Recent Activity
+# Recent Activity — {machine}
 
 ## Daily Index (last 7 days)
 
 - **{YYYY-MM-DD}**
-  - {one-line topic per session/project} → `daily/{YYYY-MM-DD}.md`
+  - {one-line topic per session/project} → `daily/{YYYY-MM-DD}.{machine}.md`
+```
+
+Every machine edits the shared `_recent.md`:
+
+```markdown
+# Recent Activity
 
 ## Still Open
 
@@ -312,8 +332,8 @@ last_updated: "{YYYY-MM-DD}"
 - **Soft size target: under ~5 KB.** If it grows past this, the spec is being violated; compress or move detail to daily logs. The bloat guard below surfaces this at session start.
 
 **Maintenance:**
-- **Auto-prune (at session start)** — `scripts/maintain-recent.py` runs from the bootstrap and silently drops Daily Index entries older than 7 days. Idempotent; safe to invoke manually for one-off cleanup. Does not modify `last_updated` (that field tracks substantive activity, not maintenance ops).
-- **Bloat guard (at session start)**: `maintain-recent.py` also surfaces a maintenance directive (under the bootstrap's `_RECENT.MD MAINTENANCE` heading) when `_recent.md` drifts past its navigation-index role: total size over ~16 KB, paragraph-length Daily Index entries (over 400 chars; they should be one line), or a frontmatter content dump (any key beyond `last_updated`). It surfaces only; the agent compresses. It never auto-deletes, since judging what is resolved needs judgment. This is the mechanism that keeps the file from silently ballooning the way it did once to ~71 KB.
+- **Auto-prune (at session start)** — `scripts/maintain-recent.py` runs from the bootstrap and silently drops Daily Index entries older than 7 days — in this machine's `_recent.{machine}.md`, and in any Daily Index left in `_recent.md` from before the split. It never writes another machine's file; the bootstrap instead skips a machine file whose `last_updated` is outside the window. Idempotent; safe to invoke manually for one-off cleanup. Does not modify `last_updated` (that field tracks substantive activity, not maintenance ops).
+- **Bloat guard (at session start)**: `maintain-recent.py` also surfaces a maintenance directive (under the bootstrap's `_RECENT.MD MAINTENANCE` heading) when `_recent.md` or this machine's `_recent.{machine}.md` drifts past its navigation-index role: total size over ~16 KB, paragraph-length Daily Index entries (over 400 chars; they should be one line), or a frontmatter content dump (any key beyond `last_updated`). It surfaces only; the agent compresses. It never auto-deletes, since judging what is resolved needs judgment. This is the mechanism that keeps the file from silently ballooning the way it did once to ~71 KB.
 - **Still Open cleanup (at session end)** — `scripts/stop-check-daily.sh` reminds the agent to add new unresolved items, drop resolved ones, and tag each with source date. Discipline: an item leaves Still Open when resolved or explicitly archived, not because time passed.
 - **Weekly Checkpoint write (at week boundary)** — Week is Monday-anchored: `### Week of {YYYY-MM-DD}` uses that week's Monday. Written at the first session of each new week (or sooner if a session naturally ends a week). If the bootstrap's `maintain-recent.py` detects the most recent Weekly Checkpoint heading is more than 7 days old, it emits a directive under the bootstrap's `_RECENT.MD MAINTENANCE` heading; write the missing week's checkpoint before continuing. "No notable surprises / no stuck items" is a valid entry; presence matters more than depth. The week's checkpoint feeds monthly reflection, and accumulating these makes monthly reflection a synthesis instead of a recall exercise.
 
@@ -323,9 +343,9 @@ last_updated: "{YYYY-MM-DD}"
 
 **During a session** — record to the daily log after substantial progress (~10+ exchanges, or multi-file changes); immediately when important decisions are made (architecture, direction shifts, key design — these must later answer "why did we do it this way?"); and before a topic shift, summarize the current topic's state.
 
-**At session end** — when the user signals farewell or "enough for today", write the full session summary to the daily log, update `_recent.md`, and update relevant threads.
+**At session end** — when the user signals farewell or "enough for today", write the full session summary to the daily log, update this machine's `_recent.{machine}.md` and Still Open in `_recent.md`, and update relevant threads.
 
-**At session start** — read `_recent.md`. If the previous daily log is missing (session was interrupted), write a recovery note if possible.
+**At session start** — read `_recent.md` and the `_recent.{machine}.md` files. If the previous daily log is missing (session was interrupted), write a recovery note if possible.
 
 **Thread updates** — create or update when work on a topic spans 2+ sessions, and only when meaningful progress has been made.
 
@@ -340,7 +360,7 @@ Orchestrated runs (epic/chain/auto implementation, ship, release preparation, ha
 1. Append one compressed section to the daily log: the command as invoked, the repo, units → PRs with merge state, key decisions, defects found, deviations, open follow-ups. 3-8 bullets.
 2. **Verify states with the ledger (`gh`) at write time; never from recall.** A state claim ("merged", "not started") written from memory can be false before the day ends.
 3. Do not invent introspection for delegated work: record facts and the reports received, and mark reconstructed gaps rather than filling them.
-4. Update `_recent.md`: Daily Index one-liner, Still Open reconcile (add new opens with source dates, drop what this run resolved), `last_updated`.
+4. Update the recent index: Daily Index one-liner and `last_updated` in this machine's `_recent.{machine}.md`; Still Open reconcile in the shared `_recent.md` (add new opens with source dates, drop what this run resolved).
 
 **Scope guard.** A dispatched unit inside a wave/orchestration run must NOT capture separately; the orchestrator records the whole run once. Without this guard, parallel units would produce duplicate entries.
 
@@ -556,7 +576,7 @@ Setup and the machine-to-machine merge are in INSTALL.md ("Sharing memory across
 - **A conflicting merge is abandoned, never left in the tree.** Conflict markers in a memory file would be read back as content — `<<<<<<< HEAD` inside `SELF.md` is a sentence about the self. The local copy is kept, the session continues on it, and the divergence is reported as session context so the gap is known rather than silently believed.
 - **Absence of sync is not an error.** Without a git remote every call is a no-op. Offline is the same: work commits locally and travels on the next successful sync.
 
-Two files carry essentially all the conflict risk, because everything else is partitioned by date or slug: `episodes/_recent.md` (one file, rewritten every session) and `episodes/daily/{YYYY-MM-DD}.md` when two machines work the same day. Merge `_recent.md` by unioning the Daily Index and Still Open sections rather than taking one side. The semantics indices (`_index.md`, `_tags.md`) are derived — regenerate them with `build-index.py` instead of merging.
+One section carries essentially all the conflict risk, because everything else is partitioned by date, slug, or machine: Still Open in `episodes/_recent.md`, when both machines edited it since the last sync. Merge it by unioning both sides' items, then dropping what either side resolved. (Daily logs and the Daily Index are per machine and cannot conflict; a bare `daily/{YYYY-MM-DD}.md` or a Daily Index still in `_recent.md` is from before the split.) The semantics indices (`_index.md`, `_tags.md`) are derived — regenerate them with `build-index.py` instead of merging.
 
 A shared tree also changes what the coverage backstop means. `stop-check-daily.sh` asks whether *today's* daily log exists, not whether this session is in it, so once several machines write into one tree the first session of the day satisfies the check for all of them. `reconcile-sessions.py` reads only the local harness ledgers, so run it on each machine — the daily logs it checks against are shared, but the sessions it checks are not.
 

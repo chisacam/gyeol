@@ -102,8 +102,23 @@ HEADER
     fi
   done
 
+  # This machine's Daily Index, then any other machine active in the window.
+  # The Daily Index is per machine (`_recent.{machine}.md`) so the lines every
+  # session rewrites never conflict across machines; Still Open stays shared.
+  if [ -f "$GYEOL_HOME/scripts/maintain-recent.py" ]; then
+    python3 "$GYEOL_HOME/scripts/maintain-recent.py" --active 2>/dev/null | while IFS= read -r f; do
+      [ -f "$f" ] || continue
+      case "$f" in
+        "$HOME"/*) rel="~${f#$HOME}" ;;
+        *)         rel="$f" ;;
+      esac
+      printf '\n--- %s ---\n' "$rel"
+      cat "$f"
+    done
+  fi
+
   # --- Staleness check -------------------------------------------------------
-  # Compare `last_updated` in _recent.md to today. If a day or more has
+  # Compare this machine's `last_updated` to today. If a day or more has
   # passed, append a directive telling the agent to retrospect and record
   # the missing activity BEFORE responding to the user's first message.
   # Also surface any session-end records left by session-end.sh.
@@ -113,7 +128,17 @@ HEADER
   # that accumulated across prior sessions whose Stop hook didn't fire
   # (clean /clear, harness crash, sessions before the hook was installed,
   # etc.).
-  RECENT="$GYEOL_HOME/memory/episodes/_recent.md"
+  # `last_updated` lives in this machine's index file: a gap is this machine's
+  # gap, and one shared line every session bumped was a conflict on every sync.
+  # An install from before the split still has it in the shared file.
+  if [ -f "$GYEOL_HOME/scripts/machine-id.sh" ]; then
+    MACHINE=$(sh "$GYEOL_HOME/scripts/machine-id.sh" 2>/dev/null || echo unknown)
+  else
+    MACHINE=$(hostname -s 2>/dev/null || echo unknown)
+  fi
+  [ -n "$MACHINE" ] || MACHINE=unknown
+  RECENT="$GYEOL_HOME/memory/episodes/_recent.$MACHINE.md"
+  [ -f "$RECENT" ] || RECENT="$GYEOL_HOME/memory/episodes/_recent.md"
   SESSION_LOG="$GYEOL_HOME/.session-log.jsonl"
 
   if [ -f "$RECENT" ]; then
@@ -140,7 +165,7 @@ except Exception:
 
       if [ -n "$days_since" ] && [ "$days_since" -ge 1 ]; then
         printf '\n=== STALE EPISODE LOG (MANDATORY ACTION REQUIRED) ===\n'
-        printf '`_recent.md` last_updated is %s — %s day(s) ago.\n' "$last_date" "$days_since"
+        printf '`%s` last_updated is %s — %s day(s) ago.\n' "${RECENT##*/}" "$last_date" "$days_since"
         printf 'Sessions almost certainly occurred in that gap without being logged.\n\n'
 
         if [ -f "$SESSION_LOG" ] && [ -s "$SESSION_LOG" ]; then
@@ -164,12 +189,13 @@ BEFORE responding to the user's first message:
    `sh $GYEOL_HOME/scripts/machine-id.sh` — one log per machine per day,
    so two machines sharing this memory never append to one file. Reading
    a date means reading every `YYYY-MM-DD*.md` it has.
-3. Update `_recent.md`'s `last_updated`, add Daily Index entries for the
-   recovered dates (one line per session/topic, pointing at the daily
-   log — `_recent.md` is a navigation index, not a content store), and
-   reconcile the Still Open section so unresolved items from the gap
-   days are surfaced or pruned. Drop any Daily Index entries now older
-   than 7 days.
+3. In this machine's `_recent.{machine}.md` (same suffix), update
+   `last_updated` and add Daily Index entries for the recovered dates
+   (one line per session/topic, pointing at the daily log — it is a
+   navigation index, not a content store); drop entries now older than
+   7 days. Then reconcile Still Open in the shared `_recent.md` so
+   unresolved items from the gap days are surfaced or pruned. Never
+   edit another machine's `_recent.{machine}.md`.
 4. After logs are written, truncate `$GYEOL_HOME/.session-log.jsonl` so
    it no longer flags the same gap on the next session.
 
