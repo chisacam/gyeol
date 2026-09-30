@@ -77,11 +77,14 @@ const ctx = {
   ui: { notify: (text, level) => notifications.push({ text, level }) },
   sessionManager: { getSessionFile: () => `/tmp/pi-sessions/${SESSION_ID}.jsonl` },
   model: { provider: "anthropic", id: "claude-opus-5" },
-  modelRegistry: { getProviderAuth: (id) => (id === "mtplx" ? { baseUrl: "http://127.0.0.1:8000/v1" } : undefined) },
+  // The real getProviderAuth is async; reading .baseUrl off its Promise is
+  // always undefined, which once made every local model untrusted. The model
+  // carries its own baseUrl, so that is what a loopback case sets.
+  modelRegistry: { getProviderAuth: async () => ({ baseUrl: "http://127.0.0.1:8000/v1" }) },
 };
 
 /** A context whose active model is whatever this case needs. */
-const withModel = (provider, id) => ({ ...ctx, model: { provider, id } });
+const withModel = (provider, id, baseUrl) => ({ ...ctx, model: { provider, id, baseUrl } });
 
 const fire = (name, event, context = ctx) => handlers.get(name)(event, context);
 
@@ -233,7 +236,7 @@ check("switching back to a trusted model delivers the identity", /gyeol session 
 
 // A local model is trusted without being listed, because it is this machine.
 await fire("session_start", { reason: "startup" });
-const local = await fire("before_agent_start", {}, withModel("mtplx", "qwen38"));
+const local = await fire("before_agent_start", {}, withModel("mtplx", "qwen38", "http://127.0.0.1:8000/v1"));
 check("a loopback provider is trusted", /gyeol session bootstrap/.test(local?.message?.content ?? ""), true);
 
 // What is already in the conversation goes back out on the next request.
