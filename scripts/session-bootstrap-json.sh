@@ -3,7 +3,7 @@
 #
 # Emits the bootstrap files (SOUL/IDENTITY/SELF/_recent) as structured JSON:
 # - Claude Code / OpenAI Codex (SessionStart): hookSpecificOutput.additionalContext
-# - Antigravity CLI (PreInvocation): injectSteps[].ephemeralMessage (once per conversation)
+# - Antigravity CLI (PreInvocation): injectSteps[].userMessage (once per conversation)
 #
 # The raw-stdout variant (session-bootstrap.sh) remains for agent
 # harnesses that append raw stdout to the session.
@@ -183,10 +183,16 @@ STALE_DIRECTIVE
 }
 
 if [ -n "$CONV_ID" ]; then
+  # Use `userMessage` rather than `ephemeralMessage`: in Antigravity CLI,
+  # `ephemeralMessage` is stripped from the prompt after a single model call
+  # (so any tool call on turn 1 wipes the bootstrap from turn 1's follow-up
+  # invocation and all subsequent turns). `userMessage` persists in the
+  # conversation trajectory across the entire session while still firing only
+  # once on invocationNum == 1.
   build_bootstrap | jq -Rs '{
     injectSteps: [
       {
-        ephemeralMessage: .
+        userMessage: .
       }
     ]
   }'

@@ -339,9 +339,9 @@ def scan_antigravity(since: date, until: date):
                         if dd:
                             first_dt = dd if first_dt is None else min(first_dt, dd)
                             last_dt = dd if last_dt is None else max(last_dt, dd)
-                    if prompt is None and d.get("type") == "USER_INPUT":
+                    if prompt is None and d.get("type") == "USER_INPUT" and d.get("source") != "SYSTEM_SDK":
                         cnt = d.get("content")
-                        if isinstance(cnt, str) and cnt.strip():
+                        if isinstance(cnt, str) and cnt.strip() and not cnt.startswith("=== gyeol session bootstrap"):
                             prompt = cnt
                     if cwd is None and isinstance(d.get("tool_calls"), list):
                         for tc in d["tool_calls"]:
