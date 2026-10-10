@@ -13,10 +13,17 @@
 set -eu
 
 INPUT=$(cat)
-SESSION_ID=$(printf '%s' "$INPUT" | jq -r '.session_id // empty')
-CMD=$(printf '%s' "$INPUT" | jq -r '.tool_input.command // empty')
+SESSION_ID=$(printf '%s' "$INPUT" | jq -r '.session_id // .conversationId // empty')
+CMD=$(printf '%s' "$INPUT" | jq -r '.tool_input.command // .toolCall.args.CommandLine // empty')
 
 [ -n "$SESSION_ID" ] || exit 0
+
+if [ -z "$CMD" ]; then
+  TRANSCRIPT=$(printf '%s' "$INPUT" | jq -r '.transcriptPath // empty')
+  if [ -n "$TRANSCRIPT" ] && [ -f "$TRANSCRIPT" ]; then
+    CMD=$(tail -n 20 "$TRANSCRIPT" 2>/dev/null | jq -r 'select(.tool_calls != null) | .tool_calls[] | select(.name == "run_command") | .args.CommandLine // empty' 2>/dev/null | tail -n 1 || true)
+  fi
+fi
 
 case "$CMD" in
   *"git show HEAD:"*|*"git show HEAD^:"*|*"git checkout HEAD --"*|*"git checkout HEAD~"*)

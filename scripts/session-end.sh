@@ -22,13 +22,9 @@
 # Idempotency / safety: append-only, never blocks session shutdown.
 #
 # Harness compatibility:
-#   - Claude Code:  SessionEnd hook supported. Register with this script.
-#   - Gemini CLI:   SessionEnd exists but is documented as "cannot block
-#                   exit and cannot inject context". The evidence-only
-#                   role this script plays is still useful — the next
-#                   SessionStart bootstrap reads the file regardless of
-#                   which harness wrote it. Safe to register.
-#   - OpenAI Codex: No session_end event exists. Do not register.
+#   - Claude Code:     SessionEnd hook supported. Register with this script.
+#   - Antigravity CLI: No SessionEnd event exists (Stop fires per turn). Do not register.
+#   - OpenAI Codex:    No session_end event exists. Do not register.
 
 GYEOL_HOME="${GYEOL_HOME:-$HOME/.config/gyeol}"
 

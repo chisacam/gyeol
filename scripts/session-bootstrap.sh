@@ -2,9 +2,8 @@
 # gyeol session bootstrap
 #
 # Injects the mandatory identity context at session start for agent harnesses
-# that support hooks (SessionStart for Claude Code, BeforeModel for Gemini CLI
-# and OpenAI Codex). The stdout of this script is appended to the session
-# context as the first thing the agent sees.
+# that support raw-stdout hooks. The stdout of this script is appended to the
+# session context as the first thing the agent sees.
 #
 # Rationale: global-config files such as CLAUDE.md / GEMINI.md / AGENTS.md
 # are often delivered inside a wrapper that frames their contents as
@@ -19,14 +18,13 @@
 # event — on startup, resume, or /clear. Within a single contiguous
 # session, only one invocation is expected.
 #
-# IMPORTANT: do NOT register this script on `BeforeModel` or any
-# per-turn hook. BeforeModel fires before every model request, and this
-# script has no functional guard against repeated execution (a prior
-# GYEOL_BOOTSTRAP_DONE env-var check was removed because child shells
-# cannot persist exports back to the parent harness — the guard never
-# worked). Using BeforeModel would inject the full ~3.8k-token bootstrap
-# on every turn. Use SessionStart on Claude Code and Gemini CLI, or the
-# nearest per-session lifecycle hook on other harnesses.
+# IMPORTANT: do NOT register this script on `BeforeModel`, `PreInvocation`,
+# or any per-turn hook without an invocation guard. Per-turn hooks fire before
+# every model request, and this raw-stdout script has no functional guard
+# against repeated execution (a prior GYEOL_BOOTSTRAP_DONE env-var check was
+# removed because child shells cannot persist exports back to the parent
+# harness — the guard never worked). Prefer session-bootstrap-json.sh on
+# Claude Code, OpenAI Codex, and Antigravity CLI.
 #
 # Resume duplication: when the host fires SessionStart on `source=resume`,
 # the prior transcript — already containing an earlier bootstrap
@@ -34,8 +32,9 @@
 # raw-stdout variant cannot read the hook input JSON (harnesses that use
 # raw stdout typically do not supply one), so it has no reliable way to
 # detect resume. Prefer session-bootstrap-json.sh on harnesses that
-# support JSON stdin (Claude Code, Gemini CLI): that variant detects
-# `source=resume` and skips.
+# support JSON stdin (Claude Code, OpenAI Codex, Antigravity CLI): that
+# variant detects `source=resume` (or `invocationNum > 1` on Antigravity)
+# and skips.
 
 GYEOL_HOME="${GYEOL_HOME:-$HOME/.config/gyeol}"
 

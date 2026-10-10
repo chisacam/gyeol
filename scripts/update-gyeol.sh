@@ -167,29 +167,33 @@ reconcile_scripts() {
 # skip silently; the instructions block treats the skill as optional.
 reconcile_skill() {
   skill_name="gyeol-capture"
-  skills_dir=""
+  target_dirs=""
   if [ -d "$HOME/.claude/skills" ]; then
-    skills_dir="$HOME/.claude/skills"
+    target_dirs="$HOME/.claude/skills"
   elif [ -d "$HOME/.codex/skills" ]; then
-    skills_dir="$HOME/.codex/skills"
+    target_dirs="$HOME/.codex/skills"
   fi
-  [ -n "$skills_dir" ] || return 0
+  if [ -d "$HOME/.gemini/config/skills" ] || [ -d "$HOME/.gemini/config" ] || [ -d "$HOME/.gemini/antigravity-cli" ]; then
+    target_dirs="$target_dirs $HOME/.gemini/config/skills"
+  fi
+  [ -n "$target_dirs" ] || return 0
   tmp_skill=$(mktemp) || return 0
   if ! curl -fsSL "$REPO_URL/skills/$skill_name/SKILL.md" -o "$tmp_skill" 2>/dev/null; then
     rm -f "$tmp_skill"
     return 0
   fi
-  dest="$skills_dir/$skill_name/SKILL.md"
-  if [ ! -e "$dest" ]; then
-    mkdir -p "$skills_dir/$skill_name"
-    mv "$tmp_skill" "$dest"
-    echo "✓ Installed skill: $skill_name -> $skills_dir/$skill_name/"
-  elif ! diff -q "$dest" "$tmp_skill" > /dev/null 2>&1; then
-    mv "$tmp_skill" "$dest"
-    echo "↻ Refreshed skill: $skill_name"
-  else
-    rm -f "$tmp_skill"
-  fi
+  for skills_dir in $target_dirs; do
+    dest="$skills_dir/$skill_name/SKILL.md"
+    if [ ! -e "$dest" ]; then
+      mkdir -p "$skills_dir/$skill_name"
+      cp "$tmp_skill" "$dest"
+      echo "✓ Installed skill: $skill_name -> $skills_dir/$skill_name/"
+    elif ! diff -q "$dest" "$tmp_skill" > /dev/null 2>&1; then
+      cp "$tmp_skill" "$dest"
+      echo "↻ Refreshed skill: $skill_name -> $skills_dir/$skill_name/"
+    fi
+  done
+  rm -f "$tmp_skill"
 }
 
 # Agent instructions block reconciliation. Upstream AGENTS.md is exactly the
@@ -206,7 +210,7 @@ reconcile_block() {
     rm -f "$block_tmp"
     return 0
   fi
-  for cfg in "$HOME/.claude/CLAUDE.md" "$HOME/.codex/AGENTS.md" "$HOME/.gemini/GEMINI.md"; do
+  for cfg in "$HOME/.claude/CLAUDE.md" "$HOME/.codex/AGENTS.md" "$HOME/.gemini/GEMINI.md" "$HOME/.gemini/AGENTS.md" "$HOME/.gemini/config/GEMINI.md" "$HOME/.gemini/config/AGENTS.md"; do
     [ -f "$cfg" ] || continue
     grep -q "<!-- gyeol:begin -->" "$cfg" || continue
     grep -q "<!-- gyeol:end -->" "$cfg" || continue

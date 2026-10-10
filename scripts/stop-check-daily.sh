@@ -20,17 +20,11 @@
 # noisy); the backstop is the periodic, harness-spanning reconcile-sessions.py
 # plus monthly-reflection triage. See MEMORY_SYSTEM.md "Coverage Reconciliation".
 #
-# Input: Stop hook JSON on stdin (contains session_id).
+# Input: Stop hook JSON on stdin (contains session_id or conversationId).
 
 set -eu
 
 GYEOL_HOME="${GYEOL_HOME:-$HOME/.config/gyeol}"
-
-# Decision keyword for the blocking JSON payload. Default is "block" which is
-# what Claude Code's Stop hook and Codex's Stop hook expect. Gemini CLI's
-# AfterAgent hook (the closest pre-exit analog) uses "deny" instead — set
-# GYEOL_BLOCK_DECISION=deny in the Gemini hook command.
-BLOCK_DECISION="${GYEOL_BLOCK_DECISION:-block}"
 
 # If gyeol is not installed on this machine, no-op.
 if [ ! -d "$GYEOL_HOME/memory" ]; then
@@ -39,7 +33,19 @@ if [ ! -d "$GYEOL_HOME/memory" ]; then
 fi
 
 INPUT=$(cat)
-SESSION_ID=$(printf '%s' "$INPUT" | jq -r '.session_id // empty')
+SESSION_ID=$(printf '%s' "$INPUT" | jq -r '.session_id // .conversationId // empty')
+HAS_CONV_ID=$(printf '%s' "$INPUT" | jq -r '.conversationId // empty')
+
+# Decision keyword for the blocking JSON payload. Default is "block" for
+# Claude Code and Codex, or "continue" when Antigravity CLI's conversationId
+# is present on stdin. GYEOL_BLOCK_DECISION overrides both if set.
+if [ -n "${GYEOL_BLOCK_DECISION:-}" ]; then
+  BLOCK_DECISION="$GYEOL_BLOCK_DECISION"
+elif [ -n "$HAS_CONV_ID" ]; then
+  BLOCK_DECISION="continue"
+else
+  BLOCK_DECISION="block"
+fi
 
 TODAY=$(date +%Y-%m-%d)
 DAILY_LOG="$GYEOL_HOME/memory/episodes/daily/${TODAY}.md"
@@ -66,11 +72,16 @@ if [ -f "$RECOVERY_FLAG" ]; then
   RECOVERY_HINT=" A git-based recovery event was detected this session (git show HEAD: or git checkout HEAD --). Add an 'Incidents' subsection to the daily log capturing what was recovered, why, and what it taught you — this is exactly the type of save-worthy moment that 2026-04-14 feedback memory warns gets erased by post-recovery relief."
 fi
 
-# Case 3: already nagged — soft reminder only.
+# Case 3: already nagged — soft reminder only (or empty object on Antigravity
+# whose Stop output proto rejects unknown fields like systemMessage).
 if [ -f "$NAGGED_FLAG" ]; then
-  jq -n --arg log "$DAILY_LOG" --arg hint "$RECOVERY_HINT" '{
-    systemMessage: ("gyeol reminder: today\u2019s daily log " + $log + " is still missing." + $hint)
-  }'
+  if [ -n "$HAS_CONV_ID" ]; then
+    echo '{}'
+  else
+    jq -n --arg log "$DAILY_LOG" --arg hint "$RECOVERY_HINT" '{
+      systemMessage: ("gyeol reminder: today\u2019s daily log " + $log + " is still missing." + $hint)
+    }'
+  fi
   exit 0
 fi
 

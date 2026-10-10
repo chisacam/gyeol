@@ -50,8 +50,14 @@ from pathlib import Path
 KST = timezone(timedelta(hours=9))
 
 # Substantiveness: did this session edit files or run a mutating git/gh command?
-# Covers both harnesses (CC tool_use names + Codex apply_patch + shared git/gh).
-EDIT_RE = re.compile(r'"name"\s*:\s*"(?:Write|Edit|MultiEdit|NotebookEdit)"|apply_patch')
+# Covers Claude Code (Write/Edit/MultiEdit/NotebookEdit), Codex (apply_patch),
+# Antigravity CLI (write_to_file/replace_file_content/multi_replace_file_content),
+# and shared git/gh mutations.
+EDIT_RE = re.compile(
+    r'"name"\s*:\s*"(?:Write|Edit|MultiEdit|NotebookEdit'
+    r'|write_to_file|replace_file_content|multi_replace_file_content)"'
+    r'|apply_patch'
+)
 MUTATE_RE = re.compile(r'git commit|git push|git tag |gh pr create|gh pr merge|gh issue create|git merge ')
 
 # Strong coverage signals: the concrete outputs a session PRODUCES, which daily
@@ -71,13 +77,16 @@ PROMPT_CAP = 140
 
 CMD_NAME_RE = re.compile(r"<command-name>\s*/?([\w-]+)\s*</command-name>")
 CMD_ARGS_RE = re.compile(r"<command-args>([^<]*)</command-args>")
+USER_REQ_RE = re.compile(r"<USER_REQUEST>\s*(.*?)\s*</USER_REQUEST>", re.DOTALL)
 WRAPPER_RE = re.compile(
     r"<local-command-caveat>.*?</local-command-caveat>"
     r"|<command-message>.*?</command-message>"
     r"|<command-name>.*?</command-name>"
     r"|<command-args>.*?</command-args>"
     r"|<local-command-stdout>.*?</local-command-stdout>"
-    r"|<system-reminder>.*?</system-reminder>",
+    r"|<system-reminder>.*?</system-reminder>"
+    r"|<ADDITIONAL_METADATA>.*?</ADDITIONAL_METADATA>"
+    r"|<USER_SETTINGS_CHANGE>.*?</USER_SETTINGS_CHANGE>",
     re.DOTALL,
 )
 # Review/hardening passes: a second-pass audit of work a primary session already
@@ -137,6 +146,9 @@ def clean_prompt(txt: str) -> str:
     """A readable gist: slash-command form, else wrapper-stripped user text."""
     if not txt:
         return ""
+    ur = USER_REQ_RE.search(txt)
+    if ur:
+        txt = ur.group(1)
     m = CMD_NAME_RE.search(txt)
     if m:
         args = CMD_ARGS_RE.search(txt)
@@ -284,6 +296,90 @@ def scan_codex(since: date, until: date):
         }
 
 
+def scan_antigravity(since: date, until: date):
+    gemini_root = Path.home() / ".gemini"
+    if not gemini_root.is_dir():
+        return
+    lo = since - timedelta(days=1)
+    hi = until + timedelta(days=1)
+    seen_ids: set[str] = set()
+    for sub in ("antigravity-cli", "antigravity", "antigravity-ide"):
+        brain_root = gemini_root / sub / "brain"
+        if not brain_root.is_dir():
+            continue
+        for f in brain_root.glob("*/.system_generated/logs/transcript.jsonl"):
+            sess_id = f.parent.parent.parent.name
+            if sess_id in seen_ids:
+                continue
+            try:
+                mday = datetime.fromtimestamp(f.stat().st_mtime, KST).date()
+            except OSError:
+                continue
+            if mday < lo - timedelta(days=2) or mday > hi:
+                continue
+            cwd = None
+            first_dt = last_dt = None
+            prompt = None
+            substantive = False
+            signals: set[str] = set()
+            try:
+                for line in f.open(encoding="utf-8", errors="replace"):
+                    if not line.strip():
+                        continue
+                    if EDIT_RE.search(line) or MUTATE_RE.search(line):
+                        substantive = True
+                    signals |= collect_signals(line)
+                    try:
+                        d = json.loads(line)
+                    except ValueError:
+                        continue
+                    ts = d.get("created_at")
+                    if isinstance(ts, str):
+                        dd = kst_date(ts)
+                        if dd:
+                            first_dt = dd if first_dt is None else min(first_dt, dd)
+                            last_dt = dd if last_dt is None else max(last_dt, dd)
+                    if prompt is None and d.get("type") == "USER_INPUT":
+                        cnt = d.get("content")
+                        if isinstance(cnt, str) and cnt.strip():
+                            prompt = cnt
+                    if cwd is None and isinstance(d.get("tool_calls"), list):
+                        for tc in d["tool_calls"]:
+                            if not isinstance(tc, dict):
+                                continue
+                            args = tc.get("args")
+                            if not isinstance(args, dict):
+                                continue
+                            for k in ("Cwd", "DirectoryPath", "SearchPath"):
+                                v = args.get(k)
+                                if isinstance(v, str):
+                                    v_clean = v.strip().strip('"')
+                                    if v_clean:
+                                        cwd = v_clean
+                                        break
+                            if cwd:
+                                break
+            except OSError:
+                continue
+            sday = first_dt or mday
+            eday = last_dt or sday
+            if eday < since or sday > until:
+                continue
+            seen_ids.add(sess_id)
+            yield {
+                "harness": "agy",
+                "file": str(f),
+                "session_id": sess_id,
+                "cwd": cwd or "?",
+                "repo": repo_of(cwd or ""),
+                "start": sday,
+                "end": eday,
+                "substantive": substantive,
+                "signals": signals,
+                "summary": clip(clean_prompt(prompt or "")),
+            }
+
+
 def load_daily_text(home: Path, since: date, until: date) -> dict[date, str]:
     """date -> daily-log text, from daily/ and daily_backup/ (cold archive)."""
     out: dict[date, str] = {}
@@ -358,7 +454,11 @@ def main(argv=None) -> int:
     home = gyeol_home()
     daily = load_daily_text(home, since, until)
 
-    sessions = list(scan_claude(since, until)) + list(scan_codex(since, until))
+    sessions = (
+        list(scan_claude(since, until))
+        + list(scan_codex(since, until))
+        + list(scan_antigravity(since, until))
+    )
     for s in sessions:
         s["bucket"] = classify(s, daily)
     sessions.sort(key=lambda s: (s["start"], s["harness"], s["repo"]))
@@ -369,6 +469,7 @@ def main(argv=None) -> int:
     covered = [s for s in sessions if s["bucket"] == "covered"]
     cc = sum(1 for s in sessions if s["harness"] == "claude")
     cx = sum(1 for s in sessions if s["harness"] == "codex")
+    ag = sum(1 for s in sessions if s["harness"] == "agy")
 
     if a.json:
         keep = unrecorded + judgment + supplementary + (covered if a.all else [])
@@ -386,7 +487,7 @@ def main(argv=None) -> int:
         return f"  {span}  {s['harness']:6}  {s['repo']:24}{sig}  {s['summary']}"
 
     print(f"gyeol session coverage reconciliation  {since} .. {until}")
-    print(f"harnesses: claude (~/.claude/projects) + codex (~/.codex/sessions)")
+    print(f"harnesses: claude (~/.claude/projects) + codex (~/.codex/sessions) + agy (~/.gemini/antigravity*/brain)")
     print(f"daily logs: {len(daily)} dated files (daily/ + daily_backup/)\n")
 
     print(f"UNRECORDED ({len(unrecorded)}) - substantive, signals absent from daily logs:")
@@ -403,7 +504,7 @@ def main(argv=None) -> int:
         print("\n".join(line(s) for s in covered) if covered else "  (none)")
 
     print()
-    print(f"scanned {len(sessions)} sessions (claude {cc} / codex {cx}); "
+    print(f"scanned {len(sessions)} sessions (claude {cc} / codex {cx} / agy {ag}); "
           f"covered {len(covered)}, unrecorded {len(unrecorded)}, "
           f"needs-judgment {len(judgment)}, supplementary {len(supplementary)}.")
     print("This surfaces; you judge episode-worth. Off-harness work (meetings, "

@@ -1,14 +1,12 @@
 #!/usr/bin/env sh
-# gyeol SessionStart hook — JSON mode
+# gyeol SessionStart / PreInvocation hook — JSON mode
 #
-# Emits the bootstrap files (SOUL/IDENTITY/SELF/_recent) as
-# hookSpecificOutput.additionalContext so Claude Code injects them
-# directly into the model's context window instead of wrapping them
-# in <persisted-output> with a "too large" preview truncation.
+# Emits the bootstrap files (SOUL/IDENTITY/SELF/_recent) as structured JSON:
+# - Claude Code / OpenAI Codex (SessionStart): hookSpecificOutput.additionalContext
+# - Antigravity CLI (PreInvocation): injectSteps[].ephemeralMessage (once per conversation)
 #
 # The raw-stdout variant (session-bootstrap.sh) remains for agent
-# harnesses that append raw stdout to the session — this script is
-# for Claude Code specifically.
+# harnesses that append raw stdout to the session.
 
 GYEOL_HOME="${GYEOL_HOME:-$HOME/.config/gyeol}"
 
@@ -18,21 +16,34 @@ if [ ! -f "$GYEOL_HOME/SOUL.md" ]; then
   exit 0
 fi
 
-# Skip injection on `source=resume`. Claude Code and Gemini CLI both fire
-# SessionStart on startup / resume / clear. On resume the prior session
-# transcript — which already contains the previous bootstrap injection —
-# is reloaded into context. Firing again would stack a second full copy
-# of SOUL/IDENTITY/SELF/_recent on top of the first (~3.8k tokens per
-# duplicate). On `clear` the context is wiped, so re-injection is the
-# desired behavior. On `startup` this is the first time anyway.
-#
-# If a fresher _recent.md is needed after a long resume gap, the user
-# can /clear to force a clean re-injection.
 INPUT=$(cat 2>/dev/null || true)
-SOURCE=$(printf '%s' "$INPUT" | jq -r '.source // "startup"' 2>/dev/null || echo "startup")
-if [ "$SOURCE" = "resume" ]; then
-  echo '{}'
-  exit 0
+
+# Antigravity CLI uses PreInvocation (which fires before every model call and
+# carries camelCase `conversationId` + `invocationNum` on stdin). Guard with
+# both `invocationNum > 1` and a per-conversation flag file so the ~3.8k-token
+# bootstrap is injected only once on the first invocation of a conversation.
+CONV_ID=$(printf '%s' "$INPUT" | jq -r '.conversationId // empty' 2>/dev/null || true)
+if [ -n "$CONV_ID" ]; then
+  INVOCATION_NUM=$(printf '%s' "$INPUT" | jq -r '.invocationNum // 1' 2>/dev/null || echo "1")
+  BOOTSTRAP_FLAG="/tmp/gyeol_session_${CONV_ID}.bootstrapped"
+  if [ "$INVOCATION_NUM" -gt 1 ] 2>/dev/null || [ -f "$BOOTSTRAP_FLAG" ]; then
+    echo '{}'
+    exit 0
+  fi
+  touch "$BOOTSTRAP_FLAG" 2>/dev/null || true
+else
+  # Skip injection on `source=resume` (Claude Code / Codex SessionStart).
+  # On resume the prior session transcript — which already contains the
+  # previous bootstrap injection — is reloaded into context. Firing again
+  # would stack a second full copy of SOUL/IDENTITY/SELF/_recent on top of
+  # the first (~3.8k tokens per duplicate). On `clear` the context is wiped,
+  # so re-injection is the desired behavior. On `startup` this is the first
+  # time anyway.
+  SOURCE=$(printf '%s' "$INPUT" | jq -r '.source // "startup"' 2>/dev/null || echo "startup")
+  if [ "$SOURCE" = "resume" ]; then
+    echo '{}'
+    exit 0
+  fi
 fi
 
 build_bootstrap() {
@@ -171,9 +182,19 @@ STALE_DIRECTIVE
   printf '\n=== end gyeol bootstrap ===\n'
 }
 
-build_bootstrap | jq -Rs '{
-  hookSpecificOutput: {
-    hookEventName: "SessionStart",
-    additionalContext: .
-  }
-}'
+if [ -n "$CONV_ID" ]; then
+  build_bootstrap | jq -Rs '{
+    injectSteps: [
+      {
+        ephemeralMessage: .
+      }
+    ]
+  }'
+else
+  build_bootstrap | jq -Rs '{
+    hookSpecificOutput: {
+      hookEventName: "SessionStart",
+      additionalContext: .
+    }
+  }'
+fi
