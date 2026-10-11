@@ -461,11 +461,17 @@ To check for and apply updates immediately, run:
 sh ~/.config/gyeol/scripts/update-gyeol.sh
 ```
 
+Or non-interactively (e.g., when run by an agent):
+
+```bash
+sh ~/.config/gyeol/scripts/update-gyeol.sh --yes
+```
+
 This script:
 1. Compares your local `VERSION` against the upstream version
 2. If a new version exists, downloads `SOUL.md`, `MEMORY_SYSTEM.md`, and other core files
 3. Shows you a diff of the changes
-4. Asks for confirmation before applying updates
+4. Asks for confirmation before applying updates (or applies automatically when `-y` / `--yes` is passed or stdin is closed in a non-interactive session)
 5. Updates your local `VERSION` and `.last_update_check` files
 
 Use this for rapid iteration during development or when you want to pick up new features immediately without waiting for the 7-day cycle.

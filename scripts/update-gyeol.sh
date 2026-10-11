@@ -22,9 +22,28 @@
 #   VERSION bump from this script would strand the block forever: the
 #   agent-driven self-update only fetches the block when versions differ.
 #
-# Usage: sh ~/.config/gyeol/scripts/update-gyeol.sh
+# Usage: sh ~/.config/gyeol/scripts/update-gyeol.sh [-y|--yes]
 
 set -e
+
+ASSUME_YES="${GYEOL_ASSUME_YES:-0}"
+for arg in "$@"; do
+  case "$arg" in
+    -y|--yes)
+      ASSUME_YES=1
+      ;;
+    -h|--help)
+      echo "Usage: $0 [-y|--yes]"
+      echo "  -y, --yes   Apply updates non-interactively without prompting"
+      exit 0
+      ;;
+    *)
+      echo "Unknown option: $arg" >&2
+      echo "Usage: $0 [-y|--yes]" >&2
+      exit 1
+      ;;
+  esac
+done
 
 GYEOL_HOME="${GYEOL_HOME:-$HOME/.config/gyeol}"
 REPO_URL="https://raw.githubusercontent.com/inureyes/gyeol/main"
@@ -403,11 +422,23 @@ else
 fi
 echo ""
 
-# Ask for confirmation
-echo "=== Apply update? ==="
-echo ""
-printf "Apply these changes? (y/n): "
-read -r response
+# Ask for confirmation (or auto-apply when --yes/-y or non-interactive EOF stdin)
+if [ "$ASSUME_YES" = "1" ]; then
+  echo "Auto-applying updates (--yes)..."
+  response="y"
+elif [ -t 0 ]; then
+  echo "=== Apply update? ==="
+  echo ""
+  printf "Apply these changes? (y/n): "
+  read -r response || response="n"
+else
+  if read -r response; then
+    :
+  else
+    echo "Non-interactive session detected (stdin closed); auto-applying updates..."
+    response="y"
+  fi
+fi
 
 case "$response" in
   y|Y|yes|YES)
