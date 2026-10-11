@@ -3,7 +3,7 @@
 #
 # Emits the bootstrap files (SOUL/IDENTITY/SELF/_recent) as structured JSON:
 # - Claude Code / OpenAI Codex (SessionStart): hookSpecificOutput.additionalContext
-# - Antigravity CLI (PreInvocation): injectSteps[].userMessage (once per conversation)
+# - Antigravity CLI (PreInvocation): injectSteps[].systemMessage (once per conversation)
 #
 # The raw-stdout variant (session-bootstrap.sh) remains for agent
 # harnesses that append raw stdout to the session.
@@ -183,16 +183,20 @@ STALE_DIRECTIVE
 }
 
 if [ -n "$CONV_ID" ]; then
-  # Use `userMessage` rather than `ephemeralMessage`: in Antigravity CLI,
-  # `ephemeralMessage` is stripped from the prompt after a single model call
-  # (so any tool call on turn 1 wipes the bootstrap from turn 1's follow-up
-  # invocation and all subsequent turns). `userMessage` persists in the
-  # conversation trajectory across the entire session while still firing only
-  # once on invocationNum == 1.
+  # Antigravity CLI PreInvocation (`exa.hooks_pb.HookInjectedStep`):
+  # - `toolCall` is marked `(exa.cortex_pb.internal_only) = true` in hooks.proto
+  #   and scrubbed to <nil> by `utils.ScrubInternalFields` for external hooks.
+  # - `ephemeralMessage` is stripped after a single model invocation (so any tool
+  #   call on turn 1 erases the bootstrap from subsequent turns).
+  # - `userMessage` persists in the trajectory, but renders as a giant user bubble.
+  # - `systemMessage` (`HookSystemMessage`) is public (not internal_only) and
+  #   injects a persistent `SYSTEM_MESSAGE` step that is not attributed to the user.
   build_bootstrap | jq -Rs '{
     injectSteps: [
       {
-        userMessage: .
+        systemMessage: {
+          systemMessage: .
+        }
       }
     ]
   }'
