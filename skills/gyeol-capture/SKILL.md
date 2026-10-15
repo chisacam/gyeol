@@ -17,7 +17,7 @@ This skill is wired non-invasively: the gyeol session instructions say to follow
 
 ## What to write
 
-1. Append one compressed section to `$GYEOL_HOME/memory/episodes/daily/{YYYY-MM-DD}.{machine}.md`, where `{machine}` is the output of `sh $GYEOL_HOME/scripts/machine-id.sh` (create the file with `date`/`sessions` frontmatter if missing):
+1. Append one short section to `$GYEOL_HOME/memory/episodes/daily/{YYYY-MM-DD}.{machine}.md`, where `{machine}` is the output of `sh $GYEOL_HOME/scripts/machine-id.sh` (create the file with `date`/`sessions` frontmatter if missing):
    - Heading: `## {repo}: {command as invoked} ({outcome})`.
    - 3-8 bullets: units → PRs with merge state, key decisions, defects found, deviations from the plan, open follow-ups.
    - **Verify merge/close states with `gh` at write time; do not write from recall.** A state claim ("merged", "not started", "waiting") written from memory can be false before the day ends, so prefer resolvable facts (PR numbers, states) over judgments.
@@ -30,4 +30,4 @@ This skill is wired non-invasively: the gyeol session instructions say to follow
 ## Style
 
 - Match the language of the existing daily logs; keep issue/PR titles in their original language.
-- Compressed and factual. The daily log is not a transcript; 3-8 bullets is the target.
+- Short and factual. The daily log is not a transcript; 3-8 bullets is the target. Short means fewer items, not fewer words: write each bullet as a complete sentence of the memory's preferred language, following `$GYEOL_HOME/styles/{lang}.md` when it exists (see `MEMORY_SYSTEM.md`, Writing Style).

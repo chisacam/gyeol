@@ -10,6 +10,7 @@ All paths are relative to `$GYEOL_HOME` (`~/.config/gyeol` on Linux/macOS, `%APP
 $GYEOL_HOME/
   SOUL.md              # Philosophy — why this system exists
   MEMORY_SYSTEM.md     # This file — operational procedures
+  styles/{lang}.md     # Optional per-language writing guide, injected when it matches IDENTITY's preferred language
   scripts/
     build-index.py         # Regenerate semantic indices
     fetch-source.py        # Archive web content
@@ -192,6 +193,17 @@ last_updated: "{YYYY-MM-DD}"
 - Update when new observations emerge during episode recording.
 - Do not force cadence. Let observations surface naturally.
 
+## Writing Style
+
+Memory is read far more often than it is written: by the next session, at every consolidation, by the user. It is also read back *as context* — the bootstrap injects `SELF.md` and `_recent.md` before every first message — so whatever style the existing files have is the style the next writer imitates. Terse, symbol-chained notes beget terser ones. Write for the reader, not for the write-time token count.
+
+- **Narrative memory is prose.** Daily log bodies (What Happened, the reasoning in Decisions Made, Open Questions), monthly summaries, reflections, `SELF.md`, bonds, a thread's Current State, and semantics Summary / Detailed Notes are written in complete sentences of the preferred language — the way a fluent native speaker would write a work journal.
+- **Index files may stay index-shaped.** The Daily Index, Still Open, Weekly Checkpoint, a daily log's Artifacts list, and table cells may be one-line noun phrases. One fact per line; do not chain several facts with separators.
+- **"Short" means fewer things, not fewer words.** The size targets in this document ("3-8 bullets", "one line per session", "~5 KB") limit how much you record. They never license dropping particles, endings, or verbs. When a log runs long, choose what to keep — decisions and their reasons, errors and how they were found, what is still open, measurements that exist nowhere else — and drop what can be recovered elsewhere (diffs, PR bodies, `gh` state, trial-and-error detail).
+- **Identifiers go to Artifacts.** Commit hashes, PR numbers, paths, and run IDs that the sentence does not need move to the daily log's Artifacts list, so the prose stays readable.
+- **Keep epistemic markers verbatim.** Tags such as `[guess]`, `[backfilled YYYY-MM-DD]`, or "unverified" are facts about the evidence; a style edit never removes or rewords them.
+- **Per-language guide.** If `$GYEOL_HOME/styles/{lang}.md` exists and one of the terms in its `match:` frontmatter appears in `IDENTITY.md`'s `preferred_language`, the bootstrap injects it after `IDENTITY.md`. Follow it for every memory write. A subagent that writes memory does not inherit it: tell it to read the file first.
+
 ## Episodes — `memory/episodes/`
 
 Episodic memory. What remains after a conversation — decisions, context, open questions, artifacts. Not the transcript, but the meaning formed through dialogue.
@@ -357,7 +369,7 @@ Orchestrated runs (epic/chain/auto implementation, ship, release preparation, ha
 
 **The rule.** Recording the run is the final step of the run itself, with the same status as technical reports: part of the work, not optional post-work. At the run's final announcement (or at the point of abort/interruption, covering what completed so far):
 
-1. Append one compressed section to the daily log: the command as invoked, the repo, units → PRs with merge state, key decisions, defects found, deviations, open follow-ups. 3-8 bullets.
+1. Append one short section to the daily log: the command as invoked, the repo, units → PRs with merge state, key decisions, defects found, deviations, open follow-ups. 3-8 bullets.
 2. **Verify states with the ledger (`gh`) at write time; never from recall.** A state claim ("merged", "not started") written from memory can be false before the day ends.
 3. Do not invent introspection for delegated work: record facts and the reports received, and mark reconstructed gaps rather than filling them.
 4. Update the recent index: Daily Index one-liner and `last_updated` in this machine's `_recent.{machine}.md`; Still Open reconcile in the shared `_recent.md` (add new opens with source dates, drop what this run resolved).
@@ -389,7 +401,7 @@ reconcile-sessions.py                         # last 30 days
 **When to run.**
 
 - **Weekly, piggybacked on the 7-day self-update check**: run `reconcile-sessions.py --since {today-7d} --until {today}` and triage. Backfill genuine misses, and re-verify any Still Open "not started"/"waiting" claims the surfaced sessions touch: delegated runs resolve items without the record noticing, and a stale claim in `_recent.md` misleads every subsequent session until caught. This bounds state decay to about a week.
-- **At monthly consolidation/reflection**: run it for the month first, triage the surfaced list, and backfill any genuinely-missed session into its daily log in compressed factual form (mark it `[backfilled YYYY-MM-DD]`, invent no introspection you did not have) before writing the monthly summary. Audit the full Still Open list against the ledger (`gh`) in the same pass: state claims decay like episodes do. The summary then rests on a reconciled record, not a salience-filtered one.
+- **At monthly consolidation/reflection**: run it for the month first, triage the surfaced list, and backfill any genuinely-missed session into its daily log in short factual form (mark it `[backfilled YYYY-MM-DD]`, invent no introspection you did not have) before writing the monthly summary. Audit the full Still Open list against the ledger (`gh`) in the same pass: state claims decay like episodes do. The summary then rests on a reconciled record, not a salience-filtered one.
 - **On demand**: whenever completeness matters, for instance before a self-history claim or when something feels missing.
 
 **The ledger is mortal, so timing matters.** Claude Code prunes its session transcripts at roughly 30 days; Codex keeps a permanent date tree. By the time monthly consolidation triggers (daily logs past 30 days), the first day or two of that month's Claude Code sessions may already be gone, so treat the consolidation-time run as catching most, not all, of the month, and run on demand mid-month or near month-end if the very start matters. None of this runs at session start; it is a timing rule for when you choose to run the tool, not a hook. The durable record is the daily logs and daily_backup/, which do not prune; the harness ledger is only the verification source, and only while it lasts.

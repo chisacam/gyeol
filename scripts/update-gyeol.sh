@@ -72,7 +72,10 @@ fi
 [ -n "${REPO_URL:-}" ] || REPO_URL="$DEFAULT_REPO_URL"
 
 # Top-level docs synced as part of an upgrade.
-FILES="SOUL.md MEMORY_SYSTEM.md"
+# styles/ holds per-language writing guides; the bootstrap injects the one
+# matching IDENTITY's preferred_language. The license file travels with the
+# guide that quotes it.
+FILES="SOUL.md MEMORY_SYSTEM.md styles/ko.md styles/LICENSE.fluent-korean"
 
 # Scripts shipped under scripts/. Listed explicitly so update doesn't depend
 # on the GitHub API (rate-limited) or directory listings.
@@ -457,7 +460,7 @@ echo ""
 # Temporary directory for downloads
 TMPDIR=$(mktemp -d)
 trap "rm -rf $TMPDIR" EXIT
-mkdir -p "$TMPDIR/scripts"
+mkdir -p "$TMPDIR/scripts" "$TMPDIR/styles"
 
 echo "Downloading new files..."
 for file in $FILES; do
@@ -548,6 +551,7 @@ case "$response" in
     echo ""
     echo "Applying updates..."
     for file in $FILES; do
+      mkdir -p "$(dirname "$GYEOL_HOME/$file")"
       cp "$TMPDIR/$file" "$GYEOL_HOME/$file"
       echo "✓ Updated $file"
     done
