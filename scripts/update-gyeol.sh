@@ -28,7 +28,7 @@
 #   $GYEOL_HOME/.disabled-harnesses, so a harness gyeol was deliberately
 #   removed from is not silently reinstated on the next check.
 #
-# Usage: sh ~/.config/gyeol/scripts/update-gyeol.sh
+# Usage: sh ~/.config/gyeol/scripts/update-gyeol.sh [-y|--yes]
 #
 # To track a fork instead of upstream (e.g. while waiting on a PR your install
 # depends on), write its raw base URL to $GYEOL_HOME/.repo-url:
@@ -36,6 +36,25 @@
 # Delete that file to go back to upstream.
 
 set -e
+
+ASSUME_YES="${GYEOL_ASSUME_YES:-0}"
+for arg in "$@"; do
+  case "$arg" in
+    -y|--yes)
+      ASSUME_YES=1
+      ;;
+    -h|--help)
+      echo "Usage: $0 [-y|--yes]"
+      echo "  -y, --yes   Apply updates non-interactively without prompting"
+      exit 0
+      ;;
+    *)
+      echo "Unknown option: $arg" >&2
+      echo "Usage: $0 [-y|--yes]" >&2
+      exit 1
+      ;;
+  esac
+done
 
 GYEOL_HOME="${GYEOL_HOME:-$HOME/.config/gyeol}"
 # Update source, in precedence order:
@@ -197,12 +216,19 @@ reconcile_scripts() {
 # ~/.pi/agent/extensions/gyeol is gone. So the deletion held until the next
 # check and then quietly came back. This file is where the intent is recorded
 # so a reconciliation can read it: one harness id per line (claude, codex,
-# gemini, pi), '#' comments and surrounding whitespace ignored.
+# antigravity, pi; legacy `gemini` = antigravity), '#' comments and surrounding whitespace ignored.
 DISABLED_FILE="$GYEOL_HOME/.disabled-harnesses"
 
 harness_disabled() {
   [ -f "$DISABLED_FILE" ] || return 1
-  sed 's/#.*//' "$DISABLED_FILE" | tr -d ' \t' | grep -qx "$1"
+  # `gemini` is the id written before Antigravity CLI replaced Gemini CLI; both
+  # name the harness rooted at ~/.gemini, so either line disables it.
+  case "$1" in
+    antigravity) ids="antigravity
+gemini" ;;
+    *) ids="$1" ;;
+  esac
+  sed 's/#.*//' "$DISABLED_FILE" | tr -d ' \t' | grep -qxF "$ids"
 }
 
 # Harness skills integration (non-invasive): gyeol owns exactly one skill
@@ -223,6 +249,13 @@ reconcile_skill() {
     if harness_disabled "$candidate_harness"; then continue; fi
     skills_dirs="$skills_dirs $candidate_dir"
   done
+  # Antigravity CLI keeps skills under ~/.gemini/config/skills, which may not
+  # exist yet on a fresh install, so its presence is judged by the CLI's dirs.
+  if [ -d "$HOME/.gemini/config/skills" ] || [ -d "$HOME/.gemini/config" ] || [ -d "$HOME/.gemini/antigravity-cli" ]; then
+    if ! harness_disabled antigravity; then
+      skills_dirs="$skills_dirs $HOME/.gemini/config/skills"
+    fi
+  fi
   [ -n "$skills_dirs" ] || return 0
   tmp_skill=$(mktemp) || return 0
   if ! curl -fsSL "$REPO_URL/skills/$skill_name/SKILL.md" -o "$tmp_skill" 2>/dev/null; then
@@ -294,7 +327,7 @@ reconcile_block() {
     rm -f "$block_tmp"
     return 0
   fi
-  for entry in "claude:$HOME/.claude/CLAUDE.md" "codex:$HOME/.codex/AGENTS.md" "gemini:$HOME/.gemini/GEMINI.md" "pi:$HOME/.pi/agent/AGENTS.md"; do
+  for entry in "claude:$HOME/.claude/CLAUDE.md" "codex:$HOME/.codex/AGENTS.md" "antigravity:$HOME/.gemini/GEMINI.md" "antigravity:$HOME/.gemini/AGENTS.md" "antigravity:$HOME/.gemini/config/GEMINI.md" "antigravity:$HOME/.gemini/config/AGENTS.md" "pi:$HOME/.pi/agent/AGENTS.md"; do
     cfg_harness=${entry%%:*}
     cfg=${entry#*:}
     [ -f "$cfg" ] || continue
@@ -325,6 +358,84 @@ reconcile_block() {
   rm -f "$block_tmp"
 }
 
+# Claude Code SessionStart hook migration (issue #9): Claude Code enforces a
+# 10,000-character cap per hook command's `additionalContext`. Migrate any legacy
+# single-command `session-bootstrap-json.sh` entry (without `--part=`) in
+# `~/.claude/settings.json` into the two split `--part=soul` and `--part=memory`
+# entries in-place while preserving all other hooks and settings.
+reconcile_claude_hooks() {
+  if harness_disabled claude; then return 0; fi
+  claude_settings="$HOME/.claude/settings.json"
+  [ -f "$claude_settings" ] || return 0
+  grep -q "session-bootstrap-json.sh" "$claude_settings" 2>/dev/null || return 0
+  python3 - "$claude_settings" <<'PY'
+import json
+import os
+import sys
+import tempfile
+
+path = sys.argv[1]
+try:
+    with open(path, "r", encoding="utf-8") as f:
+        data = json.load(f)
+except Exception:
+    sys.exit(0)
+
+hooks = data.get("hooks")
+if not isinstance(hooks, dict):
+    sys.exit(0)
+
+session_start = hooks.get("SessionStart")
+if not isinstance(session_start, list):
+    sys.exit(0)
+
+soul_cmd = 'sh "$HOME/.config/gyeol/scripts/session-bootstrap-json.sh" --part=soul 2>/dev/null || echo \'{}\''
+mem_cmd = 'sh "$HOME/.config/gyeol/scripts/session-bootstrap-json.sh" --part=memory 2>/dev/null || echo \'{}\''
+
+changed = False
+for group in session_start:
+    if not isinstance(group, dict):
+        continue
+    inner = group.get("hooks")
+    if not isinstance(inner, list):
+        continue
+    new_inner = []
+    group_changed = False
+    for item in inner:
+        if (
+            isinstance(item, dict)
+            and isinstance(item.get("command"), str)
+            and "session-bootstrap-json.sh" in item["command"]
+            and "--part" not in item["command"]
+        ):
+            new_inner.append({"type": "command", "command": soul_cmd})
+            new_inner.append({"type": "command", "command": mem_cmd})
+            group_changed = True
+            changed = True
+        else:
+            new_inner.append(item)
+    if group_changed:
+        group["hooks"] = new_inner
+
+if not changed:
+    sys.exit(0)
+
+parent = os.path.dirname(path)
+fd, tmp_path = tempfile.mkstemp(prefix=".settings.", suffix=".tmp", dir=parent)
+try:
+    with os.fdopen(fd, "w", encoding="utf-8") as f:
+        json.dump(data, f, indent=2, ensure_ascii=False)
+        f.write("\n")
+    os.replace(tmp_path, path)
+    print(f"↻ Migrated Claude Code SessionStart hook to split --part=soul/--part=memory in {path}")
+except Exception:
+    try:
+        os.unlink(tmp_path)
+    except OSError:
+        pass
+PY
+}
+
 if ! compare_versions "$LOCAL_VERSION" "$REMOTE_VERSION"; then
   echo "Already up to date."
   echo ""
@@ -333,6 +444,7 @@ if ! compare_versions "$LOCAL_VERSION" "$REMOTE_VERSION"; then
   reconcile_skill
   reconcile_pi_extension
   reconcile_block
+  reconcile_claude_hooks
   date +%Y-%m-%d > "$GYEOL_HOME/.last_update_check"
   echo "Last check: $(date)"
   exit 0
@@ -413,11 +525,23 @@ else
 fi
 echo ""
 
-# Ask for confirmation
-echo "=== Apply update? ==="
-echo ""
-printf "Apply these changes? (y/n): "
-read -r response
+# Ask for confirmation (or auto-apply when --yes/-y or non-interactive EOF stdin)
+if [ "$ASSUME_YES" = "1" ]; then
+  echo "Auto-applying updates (--yes)..."
+  response="y"
+elif [ -t 0 ]; then
+  echo "=== Apply update? ==="
+  echo ""
+  printf "Apply these changes? (y/n): "
+  read -r response || response="n"
+else
+  if read -r response; then
+    :
+  else
+    echo "Non-interactive session detected (stdin closed); auto-applying updates..."
+    response="y"
+  fi
+fi
 
 case "$response" in
   y|Y|yes|YES)
@@ -449,6 +573,7 @@ case "$response" in
     reconcile_skill
     reconcile_pi_extension
     reconcile_block
+    reconcile_claude_hooks
 
     # Update VERSION
     echo "$REMOTE_VERSION" > "$GYEOL_HOME/VERSION"

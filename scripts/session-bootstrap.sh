@@ -2,9 +2,8 @@
 # gyeol session bootstrap
 #
 # Injects the mandatory identity context at session start for agent harnesses
-# that support hooks (SessionStart for Claude Code, BeforeModel for Gemini CLI
-# and OpenAI Codex). The stdout of this script is appended to the session
-# context as the first thing the agent sees.
+# that support raw-stdout hooks. The stdout of this script is appended to the
+# session context as the first thing the agent sees.
 #
 # Rationale: global-config files such as CLAUDE.md / GEMINI.md / AGENTS.md
 # are often delivered inside a wrapper that frames their contents as
@@ -19,14 +18,13 @@
 # event — on startup, resume, or /clear. Within a single contiguous
 # session, only one invocation is expected.
 #
-# IMPORTANT: do NOT register this script on `BeforeModel` or any
-# per-turn hook. BeforeModel fires before every model request, and this
-# script has no functional guard against repeated execution (a prior
-# GYEOL_BOOTSTRAP_DONE env-var check was removed because child shells
-# cannot persist exports back to the parent harness — the guard never
-# worked). Using BeforeModel would inject the full ~3.8k-token bootstrap
-# on every turn. Use SessionStart on Claude Code and Gemini CLI, or the
-# nearest per-session lifecycle hook on other harnesses.
+# IMPORTANT: do NOT register this script on `BeforeModel`, `PreInvocation`,
+# or any per-turn hook without an invocation guard. Per-turn hooks fire before
+# every model request, and this raw-stdout script has no functional guard
+# against repeated execution (a prior GYEOL_BOOTSTRAP_DONE env-var check was
+# removed because child shells cannot persist exports back to the parent
+# harness — the guard never worked). Prefer session-bootstrap-json.sh on
+# Claude Code, OpenAI Codex, and Antigravity CLI.
 #
 # Resume duplication: when the host fires SessionStart on `source=resume`,
 # the prior transcript — already containing an earlier bootstrap
@@ -34,8 +32,9 @@
 # raw-stdout variant cannot read the hook input JSON (harnesses that use
 # raw stdout typically do not supply one), so it has no reliable way to
 # detect resume. Prefer session-bootstrap-json.sh on harnesses that
-# support JSON stdin (Claude Code, Gemini CLI): that variant detects
-# `source=resume` and skips.
+# support JSON stdin (Claude Code, OpenAI Codex, Antigravity CLI): that
+# variant detects `source=resume` (or `invocationNum > 1` on Antigravity)
+# and skips.
 
 GYEOL_HOME="${GYEOL_HOME:-$HOME/.config/gyeol}"
 
@@ -81,38 +80,7 @@ to these files — they are the bootstrap, not a reference.
 
 HEADER
 
-for f in \
-  "$GYEOL_HOME/SOUL.md" \
-  "$GYEOL_HOME/memory/IDENTITY.md" \
-  "$GYEOL_HOME/memory/SELF.md" \
-  "$GYEOL_HOME/memory/episodes/_recent.md"
-do
-  [ -f "$f" ] || continue
-  # Display path relative to $HOME when possible, for readability.
-  case "$f" in
-    "$HOME"/*) rel="~${f#$HOME}" ;;
-    *)         rel="$f" ;;
-  esac
-  printf '\n--- %s ---\n' "$rel"
-  cat "$f"
-done
-
-# This machine's Daily Index, then any other machine active in the window.
-# The Daily Index is per machine (`_recent.{machine}.md`) so the lines every
-# session rewrites never conflict across machines; Still Open stays shared.
-if [ -f "$GYEOL_HOME/scripts/maintain-recent.py" ]; then
-  python3 "$GYEOL_HOME/scripts/maintain-recent.py" --active 2>/dev/null | while IFS= read -r f; do
-    [ -f "$f" ] || continue
-    case "$f" in
-      "$HOME"/*) rel="~${f#$HOME}" ;;
-      *)         rel="$f" ;;
-    esac
-    printf '\n--- %s ---\n' "$rel"
-    cat "$f"
-  done
-fi
-
-# --- Staleness check ---------------------------------------------------------
+# --- Staleness check (emitted BEFORE file contents so it cannot be truncated) -
 # Compare this machine's `last_updated` to today. If a day or more has passed,
 # emit a strong directive instructing the agent to retrospect and record the
 # missing activity BEFORE responding to the user's first message. Also surface
@@ -205,11 +173,42 @@ STALE_DIRECTIVE
   fi
 fi
 
-# --- _recent.md maintenance directives ---------------------------------------
+# --- _recent.md maintenance directives (emitted BEFORE file contents) ---------
 # maintain-recent.py surfaces a stale Weekly Checkpoint and/or _recent.md bloat
 # here so the agent fixes them on the next update.
 if [ -n "$WEEKLY_NOTE" ]; then
   printf '\n=== _RECENT.MD MAINTENANCE ===\n%s\n' "$WEEKLY_NOTE"
+fi
+
+for f in \
+  "$GYEOL_HOME/SOUL.md" \
+  "$GYEOL_HOME/memory/IDENTITY.md" \
+  "$GYEOL_HOME/memory/SELF.md" \
+  "$GYEOL_HOME/memory/episodes/_recent.md"
+do
+  [ -f "$f" ] || continue
+  # Display path relative to $HOME when possible, for readability.
+  case "$f" in
+    "$HOME"/*) rel="~${f#$HOME}" ;;
+    *)         rel="$f" ;;
+  esac
+  printf '\n--- %s ---\n' "$rel"
+  cat "$f"
+done
+
+# This machine's Daily Index, then any other machine active in the window.
+# The Daily Index is per machine (`_recent.{machine}.md`) so the lines every
+# session rewrites never conflict across machines; Still Open stays shared.
+if [ -f "$GYEOL_HOME/scripts/maintain-recent.py" ]; then
+  python3 "$GYEOL_HOME/scripts/maintain-recent.py" --active 2>/dev/null | while IFS= read -r f; do
+    [ -f "$f" ] || continue
+    case "$f" in
+      "$HOME"/*) rel="~${f#$HOME}" ;;
+      *)         rel="$f" ;;
+    esac
+    printf '\n--- %s ---\n' "$rel"
+    cat "$f"
+  done
 fi
 
 printf '\n=== end gyeol bootstrap ===\n'

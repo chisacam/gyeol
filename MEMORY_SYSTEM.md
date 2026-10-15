@@ -364,13 +364,13 @@ Orchestrated runs (epic/chain/auto implementation, ship, release preparation, ha
 
 **Scope guard.** A dispatched unit inside a wave/orchestration run must NOT capture separately; the orchestrator records the whole run once. Without this guard, parallel units would produce duplicate entries.
 
-**Harness integration (non-invasive).** Where the host exposes a skills directory (Claude Code `~/.claude/skills`, commonly shared with Codex via symlink), this procedure ships as the `gyeol-capture` skill, installed and kept current by gyeol itself (INSTALL.md Step 7.5, `update-gyeol.sh`). No other skill is ever modified: the session instructions tell the agent to follow the skill at run end when it is installed, and to skip when it is not, with the weekly coverage pass as the backstop. Where no skills directory exists, this section is the normative text.
+**Harness integration (non-invasive).** Where the host exposes a skills directory (Claude Code `~/.claude/skills`, commonly shared with Codex via symlink, or Antigravity `~/.gemini/config/skills`), this procedure ships as the `gyeol-capture` skill, installed and kept current by gyeol itself (INSTALL.md Step 7.5, `update-gyeol.sh`). No other skill is ever modified: the session instructions tell the agent to follow the skill at run end when it is installed, and to skip when it is not, with the weekly coverage pass as the backstop. Where no skills directory exists, this section is the normative text.
 
 ### Coverage Reconciliation
 
 Episode recording answers "what felt worth writing." Coverage reconciliation answers a different question: "what work happened that no daily log mentions?" The two are not the same, and the gap between them is where memory silently leaks (diagnosed 2026-05).
 
-The objective ledger already exists: the harness session files (`~/.claude/projects/*/*.jsonl`, `~/.codex/sessions/**/*.jsonl`, and whatever a future harness writes). That ledger spans hands, so the reconciliation must too. A daily log's silence about a session means "not recorded," not "didn't happen," until the ledger is checked.
+The objective ledger already exists: the harness session files (`~/.claude/projects/*/*.jsonl`, `~/.codex/sessions/**/*.jsonl`, `~/.gemini/antigravity*/brain/*/.system_generated/logs/transcript.jsonl`, and whatever a future harness writes). That ledger spans hands, so the reconciliation must too. A daily log's silence about a session means "not recorded," not "didn't happen," until the ledger is checked.
 
 **Tool.** `scripts/reconcile-sessions.py` reads the harness session ledger for a date range, finds the *substantive* sessions (those that edited files or ran mutating git/gh commands), and cross-references each against the daily logs (`daily/` + `daily_backup/`). It surfaces three buckets:
 

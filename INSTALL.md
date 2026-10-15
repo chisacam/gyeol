@@ -2,7 +2,7 @@
 
 You are reading the installation instructions for **gyeol**, a memory architecture that gives AI agents persistent identity through accumulated experience.
 
-This file is designed to be read and executed by an AI agent (Claude Code, Gemini CLI, OpenAI Codex, or any compatible system). Follow the steps below exactly.
+This file is designed to be read and executed by an AI agent (Claude Code, Antigravity CLI, OpenAI Codex, or any compatible system). Follow the steps below exactly.
 
 ## Prerequisites
 
@@ -50,8 +50,8 @@ When operating in upgrade mode, every subsequent step changes meaning: instead o
    - If absent → insert the full block at the top of the file.
    - If present and identical to the upstream block → skip.
    - If present but differs → replace **only** the content between the two markers, leaving the rest of the file untouched. Preserve any non-gyeol content above or below the markers byte-for-byte.
-6. **Harness settings files (Step 7)** — merge, never replace. For each hook group (`SessionStart`, `PostToolUse`, `AfterTool`, `AfterAgent`, `Stop`, etc.):
-   - Identify existing entries by matching any `command` string that contains `~/.config/gyeol/scripts/` or `$HOME/.config/gyeol/scripts/` — those are gyeol-owned.
+6. **Harness settings files (Step 7)** — merge, never replace. For each hook group (`SessionStart`, `PreInvocation`, `PostToolUse`, `Stop`, `SessionEnd`, etc.):
+   - Identify existing entries by matching any `command` string that contains `~/.config/gyeol/scripts/` or `$HOME/.config/gyeol/scripts/` — those are gyeol-owned. (In Antigravity CLI's `~/.gemini/config/hooks.json`, gyeol owns the top-level `"gyeol"` named hook object.)
    - For each gyeol-owned entry, compare against the upstream entry with the same script name. Update the `command`, `matcher`, and `if` fields to the upstream values; leave untouched entries that belong to other tools.
    - If the upstream block introduces a new script not present locally, append it.
    - If a local gyeol entry references a script that no longer appears in the upstream block, remove it.
@@ -125,16 +125,16 @@ chmod +x ~/.config/gyeol/scripts/machine-id.sh ~/.config/gyeol/scripts/session-b
 
 Script roles:
 
-- `session-bootstrap.sh` — raw-stdout bootstrap for harnesses that append hook stdout to the session context. Kept as a fallback for agents without JSON-stdin hook contracts. **Must only be registered on a per-session lifecycle hook (SessionStart / app-init / equivalent), never on per-turn hooks like `BeforeModel`.** The script has no functional guard against repeated execution — any prior `GYEOL_BOOTSTRAP_DONE` env-var guard was a fiction, because child shells cannot persist exports back to the parent harness — and registering it on a per-turn hook would inject the full ~3.8k-token bootstrap on every model request.
-- `session-bootstrap-json.sh` — Claude Code and Gemini CLI variant that emits a `hookSpecificOutput.additionalContext` JSON payload, so the bootstrap is injected directly into the model context instead of being wrapped in a `<persisted-output>` "too large" preview. Reads the hook input JSON on stdin and checks the `source` field: on `source=resume` it emits an empty `{}` and skips, because the prior transcript — which already contains the earlier bootstrap injection — is being reloaded, and re-firing would stack a duplicate copy. Only `startup` and `clear` trigger an actual injection.
+- `session-bootstrap.sh` — raw-stdout bootstrap for harnesses that append hook stdout to the session context. Kept as a fallback for agents without JSON-stdin hook contracts. **Must only be registered on a per-session lifecycle hook (SessionStart / app-init / equivalent), never on per-turn hooks.** The script has no functional guard against repeated execution — any prior `GYEOL_BOOTSTRAP_DONE` env-var guard was a fiction, because child shells cannot persist exports back to the parent harness — and registering it on a per-turn hook would inject the full ~15 KB bootstrap on every model request.
+- `session-bootstrap-json.sh` — structured JSON variant for Claude Code, OpenAI Codex (`SessionStart`), and Antigravity CLI (`PreInvocation`). Accepts `--part=soul|memory|all` (default: `all`). Emits `hookSpecificOutput.additionalContext` for `SessionStart`, or `injectSteps: [{"systemMessage": {"systemMessage": ...}}]` when Antigravity CLI's `conversationId` is present on stdin, so the bootstrap persists in the conversation trajectory across all turns without dumping ~45 KB of text into the chat UI (as `userMessage` would), getting scrubbed as internal-only (as `toolCall` would), or vanishing after the first tool call (as `ephemeralMessage` would). On Claude Code `SessionStart`, register two split commands (`--part=soul` for `SOUL.md` and `--part=memory` for `IDENTITY.md` + `SELF.md` + `_recent.md` + every active `_recent.{machine}.md` + staleness/maintenance directives) so each hook's `additionalContext` stays safely under Claude Code's 10,000-character per-hook output cap. Staleness (`STALE EPISODE LOG`) and `_recent.md` maintenance (`_RECENT.MD MAINTENANCE`) directives are emitted before file contents so they are never lost even if a harness truncates the tail. On `SessionStart`, checks `source=resume` and skips to avoid duplicate injection; on Antigravity `PreInvocation` (which fires before every model call), uses `invocationNum > 1` plus `/tmp/gyeol_session_${conversationId}.bootstrapped` so the bootstrap only fires once per conversation.
 - `maintain-recent.py`: bootstrap maintenance pass invoked by **both** `session-bootstrap.sh` and `session-bootstrap-json.sh`. Silently prunes Daily Index entries older than 7 days in this machine's `_recent.{machine}.md` (and any pre-split Daily Index left in `_recent.md`), never another machine's; with `--active` it lists the machine files the bootstrap emits; surfaces a directive (relayed under the bootstrap's `_RECENT.MD MAINTENANCE` heading) when a Weekly Checkpoint is stale (most recent heading over 7 days old) or a recent-index file has bloated past its navigation-index role (size over ~16 KB, paragraph-length Daily Index entries, or a frontmatter key beyond `last_updated`); it surfaces only, never auto-deletes. Does not touch the `last_updated` frontmatter. The two bootstrap scripts guard the call with `[ -f "$GYEOL_HOME/scripts/maintain-recent.py" ]`, so if this file is missing they degrade **silently** (exit 0, no error, but auto-prune, the weekly reminder, and the bloat guard are all dead). It must therefore be downloaded alongside the bootstrap scripts; do not omit it.
-- `reconcile-sessions.py`: coverage backstop, run weekly (piggybacked on the 7-day self-update check), at monthly consolidation/reflection, and on demand; not a hook. Reads the harness session ledger (`~/.claude/projects` + `~/.codex/sessions`, harness-spanning) for a date range and cross-references substantive sessions against the daily logs, surfacing UNRECORDED / NEEDS JUDGMENT / LIKELY SUPPLEMENTARY buckets for triage. Never writes episodes; judgment stays human. Invoked as `python3 reconcile-sessions.py --month YYYY-MM`. Closes the salience/tool-bias leak the 2026-05 audit found. See MEMORY_SYSTEM.md "Coverage Reconciliation".
+- `reconcile-sessions.py`: coverage backstop, run weekly (piggybacked on the 7-day self-update check), at monthly consolidation/reflection, and on demand; not a hook. Reads the harness session ledger (`~/.claude/projects` + `~/.codex/sessions` + `~/.pi/agent/sessions` + `~/.gemini/antigravity*/brain`, harness-spanning) for a date range and cross-references substantive sessions against the daily logs, surfacing UNRECORDED / NEEDS JUDGMENT / LIKELY SUPPLEMENTARY buckets for triage. Never writes episodes; judgment stays human. Invoked as `python3 reconcile-sessions.py --month YYYY-MM`. Closes the salience/tool-bias leak the 2026-05 audit found. See MEMORY_SYSTEM.md "Coverage Reconciliation".
 - `trust-gate.sh` — the provider gate every other hook asks first: may the model serving this session receive memory? Sourced by the bootstrap, marker, Stop, session-end and sync scripts; also runnable on its own (`sh ~/.config/gyeol/scripts/trust-gate.sh` prints `allow`/`deny` and the reason). `GYEOL_TRUST=0` denies for one process, `GYEOL_TRUST=1` allows; with neither set it reads the endpoint the harness was started against, denying an `ANTHROPIC_BASE_URL` that is not an allowlisted host (extend with `GYEOL_TRUSTED_HOSTS`). If this file is missing the other scripts still honor an explicit `GYEOL_TRUST=0`, but lose the endpoint detection — download it with the rest.
 - `post-mark-substantive.sh` — PostToolUse hook that touches `/tmp/gyeol_session_${id}.substantive` whenever a file write/edit or `git commit` happens. The Stop hook reads this flag to decide whether a daily log is required. For harnesses whose tool-use hook matcher can filter only by tool name (not by command content), pair it with `post-mark-substantive-if-commit.sh`.
-- `post-mark-substantive-if-commit.sh` — conditional variant that marks substantive when the shell command contains a mutating git/gh operation (`git commit`, `git push`, `gh pr merge`, `gh pr create`, `gh issue create`, `gh release create`). Needed for Codex `PostToolUse` and Gemini CLI `AfterTool`, where the matcher is tool-name regex only. The set is wider than `git commit` alone because on Codex file edits go through `apply_patch` (which bypasses hooks) and delegation runs commit inside sub-rollouts; the top-level session's hookable tells are the gh-side mutations. Claude Code uses `post-mark-substantive.sh` directly because its hook entries support an `if: "Bash(git commit:*)"` condition.
+- `post-mark-substantive-if-commit.sh` — conditional variant that marks substantive when the shell command contains a mutating git/gh operation (`git commit`, `git push`, `gh pr merge`, `gh pr create`, `gh issue create`, `gh release create`). Needed for Codex and Antigravity CLI `PostToolUse`, where the matcher is tool-name regex only. On Antigravity CLI (`PostToolUse` stdin provides `transcriptPath` rather than `toolCall`), it falls back to extracting the latest `run_command` invocation from the transcript JSONL. Claude Code uses `post-mark-substantive.sh` directly because its hook entries support an `if: "Bash(git commit:*)"` condition.
 - `post-mark-recovery.sh` — PostToolUse hook that fires on `git show HEAD:` / `git checkout HEAD --` (file-restoration patterns). Marks the session as having a recovery incident so the Stop hook forces an `Incidents` subsection in the daily log. Motivated by the 2026-04-14 `debian/changelog` near-loss: recovery relief was erasing the save-worthy moment.
-- `stop-check-daily.sh` — Stop hook that blocks session end when the session was substantive but today's daily log is still missing, with a soft-reminder fallback if already nagged once. Enforces the memory loop that task framing was silently suppressing.
-- `session-end.sh` — SessionEnd hook (Claude Code) that records `{"end": "<UTC ISO 8601>", "cwd": "<path>"}` to `$GYEOL_HOME/.session-log.jsonl` whenever a session ends. Append-only, never blocks. Used as the **evidence channel** for the staleness check inside `session-bootstrap.sh` / `session-bootstrap-json.sh`: if `_recent.md`'s `last_updated` is more than a day behind, the next bootstrap surfaces the recorded session-end entries plus a directive telling the agent to retrospect and write missing daily logs *before* responding. Complements `stop-check-daily.sh` — Stop blocks exit on substantive sessions with no daily log, while `session-end.sh` + the staleness check recover gaps where Stop never fired (clean `/clear`, harness crash, sessions predating the hook install, or non-substantive sessions whose memory updates were nevertheless meaningful). Do not register on per-turn hooks. Do not register on Codex (no `session_end` event) or Gemini CLI (`SessionEnd` cannot inject context, but the evidence-recording role still works there if the upstream evolves; `update-gyeol` will wire it in if/when that lands).
+- `stop-check-daily.sh` — Stop hook that blocks session end when the session was substantive but today's daily log is still missing, with a soft-reminder fallback if already nagged once. Emits `decision: "block"` for Claude Code and Codex, or `decision: "continue"` when Antigravity CLI's `conversationId` is present on stdin. Enforces the memory loop that task framing was silently suppressing.
+- `session-end.sh` — SessionEnd hook (Claude Code) that records `{"end": "<UTC ISO 8601>", "cwd": "<path>"}` to `$GYEOL_HOME/.session-log.jsonl` whenever a session ends. Append-only, never blocks. Used as the **evidence channel** for the staleness check inside `session-bootstrap.sh` / `session-bootstrap-json.sh`: if `_recent.md`'s `last_updated` is more than a day behind, the next bootstrap surfaces the recorded session-end entries plus a directive telling the agent to retrospect and write missing daily logs *before* responding. Complements `stop-check-daily.sh` — Stop blocks exit on substantive sessions with no daily log, while `session-end.sh` + the staleness check recover gaps where Stop never fired (clean `/clear`, harness crash, sessions predating the hook install, or non-substantive sessions whose memory updates were nevertheless meaningful). Do not register on per-turn hooks. Do not register on Codex or Antigravity CLI (neither exposes a session-end hook event).
 - `sync-memory.sh` — shares one memory tree across machines through a git remote: `pull` at session start, `push` at session end, `status` to inspect. A no-op unless `$GYEOL_HOME/memory` is a git repo with an `origin`, so installing it costs nothing on a single-machine setup. It never leaves conflict markers in a memory file — a conflicting merge is aborted and reported instead, because the bootstrap reads these files as identity and `<<<<<<< HEAD` in `SELF.md` would be read as something the agent believes about itself. See "Sharing memory across machines" below.
 - `update-gyeol.sh` — on-demand update runner (see "Updating" below).
 
@@ -178,7 +178,7 @@ Creating a remote publishes memory, so never run this without the user explicitl
 
 You are reading this document in one of the following agent systems:
 - **Claude Code** (running in `~/.claude/`)
-- **Gemini CLI** (running in `~/.gemini/`)
+- **Antigravity CLI** (running in `~/.gemini/antigravity-cli/` or `~/.gemini/config/`)
 - **OpenAI Codex** (running in `~/.codex/`)
 - **pi** (running in `~/.pi/agent/`)
 
@@ -189,7 +189,7 @@ Install gyeol **only for the agent system in which you are currently running thi
 Determine which agent is executing this installation:
 
 1. If you are in Claude Code → Treat as `~/.claude/` (Claude Code)
-2. If you are in Gemini CLI → Treat as `~/.gemini/` (Gemini CLI)
+2. If you are in Antigravity CLI → Treat as `~/.gemini/` (Antigravity CLI)
 3. If you are in OpenAI Codex → Treat as `~/.codex/` (OpenAI Codex)
 4. If you are in pi → Treat as `~/.pi/agent/` (pi)
 
@@ -198,16 +198,18 @@ If the detected harness is named in `$GYEOL_HOME/.disabled-harnesses`, stop: gye
 | Agent System | Global Config File |
 |-------------|-------------------|
 | Claude Code | `~/.claude/CLAUDE.md` |
-| Gemini CLI | `~/.gemini/GEMINI.md` |
+| Antigravity CLI | `~/.gemini/GEMINI.md` |
 | OpenAI Codex | `~/.codex/AGENTS.md` |
 | pi | `~/.pi/agent/AGENTS.md` |
+
+*(Note: Antigravity CLI discovers global rules from `~/.gemini/GEMINI.md`, `~/.gemini/AGENTS.md`, `~/.gemini/config/GEMINI.md`, and `~/.gemini/config/AGENTS.md`. Use `~/.gemini/GEMINI.md` as the primary installation target unless the user already maintains global rules in one of the other three files, in which case update that existing file instead to avoid duplicate loading.)*
 
 **Rules:**
 
 - Update **only** the global config file for the current agent system
 - If the global config file already exists, prepend the gyeol block at the **top** of the file, followed by a blank line and the existing content. Do not duplicate if the gyeol block is already present (check for the marker `<!-- gyeol:begin -->`).
 - If the global config file does not exist, create it with the gyeol block as its sole content.
-- Ensure the parent directory exists before writing (e.g., `mkdir -p ~/.claude` for Claude Code)
+- Ensure the parent directory exists before writing (e.g., `mkdir -p ~/.claude` for Claude Code or `mkdir -p ~/.gemini` for Antigravity CLI)
 - For pi, write `~/.pi/agent/AGENTS.md` — **not** `~/.pi/agent/APPEND_SYSTEM.md`. Both are loaded, but `APPEND_SYSTEM.md` is appended to the system prompt while `AGENTS.md` is pi's documented global context file, which is what the marker-splice in `update-gyeol.sh` reconciles.
 
 ## Step 6: Agent instructions block
@@ -238,7 +240,7 @@ For Claude Code and pi, also install the tool-use and stop-side integrations tha
 
 ### Claude Code (if `~/.claude/` exists)
 
-Edit `~/.claude/settings.json` (create it if missing). Add (or merge into) a top-level `hooks` key with the following three hook groups. Claude Code supports structured JSON hook output, so the SessionStart hook uses `session-bootstrap-json.sh` (which emits `hookSpecificOutput.additionalContext`) instead of the raw-stdout variant — this ensures the bootstrap is injected into the model context rather than being wrapped in a `<persisted-output>` truncation:
+Edit `~/.claude/settings.json` (create it if missing). Add (or merge into) a top-level `hooks` key with the following four hook groups. Claude Code supports structured JSON hook output (`hookSpecificOutput.additionalContext`), and enforces a **10,000-character cap** on each individual hook command's `additionalContext` output. Registering `session-bootstrap-json.sh` as two split commands (`--part=soul` and `--part=memory`) keeps each output well below 10,000 characters so `SOUL.md`, `IDENTITY.md`, `SELF.md`, `_recent.md`, and the staleness/maintenance directives are all delivered in full without truncation:
 
 ```json
 {
@@ -252,7 +254,11 @@ Edit `~/.claude/settings.json` (create it if missing). Add (or merge into) a top
           },
           {
             "type": "command",
-            "command": "sh \"$HOME/.config/gyeol/scripts/session-bootstrap-json.sh\" 2>/dev/null || echo '{}'"
+            "command": "sh \"$HOME/.config/gyeol/scripts/session-bootstrap-json.sh\" --part=soul 2>/dev/null || echo '{}'"
+          },
+          {
+            "type": "command",
+            "command": "sh \"$HOME/.config/gyeol/scripts/session-bootstrap-json.sh\" --part=memory 2>/dev/null || echo '{}'"
           }
         ]
       }
@@ -311,11 +317,11 @@ Edit `~/.claude/settings.json` (create it if missing). Add (or merge into) a top
 }
 ```
 
-Merge semantics: if `hooks` already exists, merge each hook group into it. If a group (`SessionStart`, `PostToolUse`, `Stop`, `SessionEnd`) already exists, append the gyeol entries rather than replacing. The trailing `|| true` / `|| echo '{}'` ensures a missing gyeol installation never blocks tooling. After editing, validate the file parses as JSON (`python3 -m json.tool ~/.claude/settings.json`).
+Merge semantics: if `hooks` already exists, merge each hook group into it. If a group (`SessionStart`, `PostToolUse`, `Stop`, `SessionEnd`) already exists, append the gyeol entries rather than replacing (or if upgrading from an older single-command `session-bootstrap-json.sh` entry without `--part=`, replace that single command with the `--part=soul` and `--part=memory` pair; `update-gyeol.sh` also performs this migration automatically). The trailing `|| true` / `|| echo '{}'` ensures a missing gyeol installation never blocks tooling. After editing, validate the file parses as JSON (`python3 -m json.tool ~/.claude/settings.json`).
 
 What each hook enforces:
 
-- **SessionStart** → injects `SOUL.md` + `IDENTITY.md` + `SELF.md` + `_recent.md` + every active `_recent.{machine}.md` as first-class context. Also runs the **staleness check**: if this machine's `last_updated` (in `_recent.{machine}.md`) is a day or more behind today, it appends a directive listing the gap (and any session-end records left by `session-end.sh`) and tells the agent to retrospect and write missing daily logs *before* responding to the user's first message.
+- **SessionStart (`--part=soul` + `--part=memory`)** → injects `SOUL.md` (part 1) and `IDENTITY.md` + `SELF.md` + `_recent.md` + every active `_recent.{machine}.md` (part 2) as first-class context, keeping each hook's `additionalContext` below Claude Code's 10,000-character per-hook output cap when the memory files are small enough. Part 2 also runs the **staleness check** and **`_recent.md` maintenance pass** and emits their directives *before* the file contents so they are never truncated: if this machine's `last_updated` (in `_recent.{machine}.md`) is a day or more behind today, it prepends a directive listing the gap (and any session-end records left by `session-end.sh`) and tells the agent to retrospect and write missing daily logs *before* responding to the user's first message.
 - **PostToolUse (Write|Edit, or `git commit`)** → marks the session as substantive.
 - **PostToolUse (`git show`)** → marks the session as having a recovery event so the Stop hook demands an `Incidents` subsection.
 - **Stop** → if the session is substantive but today's daily log is missing, blocks stopping with a `decision: "block"` payload instructing the agent to write the daily log. A per-session nagged flag prevents infinite loops on retry.
@@ -323,26 +329,24 @@ What each hook enforces:
 - **SessionEnd (sync push)** → publishes what this session wrote. Registered after `session-end.sh` so the evidence record is included in the same commit.
 - **SessionEnd** → append-only evidence record. Writes `{"end": "<UTC ISO 8601>", "cwd": "<path>"}` to `$GYEOL_HOME/.session-log.jsonl`. Cannot block exit (SessionEnd fires after the agent has stopped) and is not meant to — its purpose is to leave a breadcrumb that the *next* SessionStart's staleness check can surface. Recovers the gap when Stop never fired: clean `/clear`, harness crash, the session predating hook installation, or non-substantive sessions whose memory updates were nevertheless meaningful.
 
-### Gemini CLI (if `~/.gemini/` exists)
+### Antigravity CLI (if `~/.gemini/antigravity-cli/` or `~/.gemini/config/` exists)
 
-Gemini CLI ships a Claude-Code-compatible hook engine (verified against `docs/hooks/reference.md` on `google-gemini/gemini-cli@main`). Edit `~/.gemini/settings.json` (create it if missing) and merge the following into the top-level `hooks` key:
+Antigravity CLI reads global hook definitions from `~/.gemini/config/hooks.json` (not `settings.json`). Top-level keys in `hooks.json` are **named hook objects** (such as `"gyeol"`), where `PreInvocation` and `Stop` take a **flat** array of handler objects and `PostToolUse` takes a **grouped** array with `matcher` and `hooks`.
+
+Ensure `~/.gemini/config` exists (`mkdir -p ~/.gemini/config`), then edit `~/.gemini/config/hooks.json` (create it if missing) and add or update the top-level `"gyeol"` key:
 
 ```json
 {
-  "hooks": {
-    "SessionStart": [
+  "gyeol": {
+    "PreInvocation": [
       {
-        "hooks": [
-          {
-            "type": "command",
-            "command": "sh \"$HOME/.config/gyeol/scripts/session-bootstrap-json.sh\" 2>/dev/null || echo '{}'"
-          }
-        ]
+        "type": "command",
+        "command": "sh \"$HOME/.config/gyeol/scripts/session-bootstrap-json.sh\" 2>/dev/null || echo '{}'"
       }
     ],
-    "AfterTool": [
+    "PostToolUse": [
       {
-        "matcher": "write_file|replace",
+        "matcher": "write_to_file|replace_file_content|multi_replace_file_content",
         "hooks": [
           {
             "type": "command",
@@ -351,7 +355,7 @@ Gemini CLI ships a Claude-Code-compatible hook engine (verified against `docs/ho
         ]
       },
       {
-        "matcher": "run_shell_command",
+        "matcher": "run_command",
         "hooks": [
           {
             "type": "command",
@@ -364,14 +368,10 @@ Gemini CLI ships a Claude-Code-compatible hook engine (verified against `docs/ho
         ]
       }
     ],
-    "AfterAgent": [
+    "Stop": [
       {
-        "hooks": [
-          {
-            "type": "command",
-            "command": "GYEOL_BLOCK_DECISION=deny sh \"$HOME/.config/gyeol/scripts/stop-check-daily.sh\" 2>/dev/null || echo '{}'"
-          }
-        ]
+        "type": "command",
+        "command": "sh \"$HOME/.config/gyeol/scripts/stop-check-daily.sh\" 2>/dev/null || echo '{}'"
       }
     ]
   }
@@ -380,11 +380,11 @@ Gemini CLI ships a Claude-Code-compatible hook engine (verified against `docs/ho
 
 Mapping notes:
 
-- **`SessionStart`** returns `hookSpecificOutput.additionalContext`, which Gemini injects as the first turn of the session (interactive) or prepends to the prompt (non-interactive). Cannot be blocked — parity with Claude Code.
-- **`AfterTool`** matchers are regex against the tool name. Gemini's file-write tools are `write_file` and `replace` (not `Write`/`Edit`), and the shell tool is `run_shell_command` (not `Bash`). Because Gemini matchers filter only by tool name, the shell branch uses `post-mark-substantive-if-commit.sh` instead of the unconditional `post-mark-substantive.sh` to avoid flagging every shell invocation as substantive.
-- **`AfterAgent`** is Gemini's closest analog to Claude's `Stop`: it runs once per turn after the final response and supports `decision: "deny"` to reject the response and force a retry, with `reason` fed back to the model. Because Gemini uses `"deny"` (not `"block"`), we set `GYEOL_BLOCK_DECISION=deny` in the hook command so `stop-check-daily.sh` emits the correct keyword. `SessionEnd` exists but cannot block exit — do **not** use it.
+- **`PreInvocation`** fires before every model call and accepts `{"injectSteps": [{"systemMessage": {"systemMessage": "..."}}]}` on stdout. (`ephemeralMessage` is stripped after a single model call so it vanishes on the first tool call; `userMessage` dumps the full bootstrap text into the chat UI; `toolCall` is marked `internal_only` in `hooks.proto` and scrubbed by `ScrubInternalFields`.) When `session-bootstrap-json.sh` detects `conversationId` in stdin JSON, it emits this `systemMessage` step and guards execution with `invocationNum > 1` and `/tmp/gyeol_session_${conversationId}.bootstrapped` so the bootstrap is injected only once at the start of the conversation.
+- **`PostToolUse`** matchers are regexes against Antigravity tool names. File-editing tools are `write_to_file`, `replace_file_content`, and `multi_replace_file_content`; the shell execution tool is `run_command`. Because `PostToolUse` stdin on Antigravity provides `conversationId`, `stepIdx`, and `transcriptPath` (rather than inline `toolCall`), `post-mark-substantive-if-commit.sh` and `post-mark-recovery.sh` automatically inspect the latest `run_command` arguments in `transcriptPath`.
+- **`Stop`** fires when the agent loop is about to end and accepts `{"decision": "continue", "reason": "..."}` to block stopping and inject a follow-up instruction. `stop-check-daily.sh` automatically switches its decision keyword from `"block"` to `"continue"` (and emits `{}` instead of `systemMessage` when already nagged) whenever `conversationId` is present on stdin.
 
-If `hooks` already exists, merge each group into it. After editing, validate the file (`python3 -m json.tool ~/.gemini/settings.json`).
+If `~/.gemini/config/hooks.json` already exists with other named hook objects, preserve them and set/replace only the `"gyeol"` key. After editing, validate the file (`python3 -m json.tool ~/.gemini/config/hooks.json > /dev/null`).
 
 ### OpenAI Codex (if `~/.codex/` exists)
 
@@ -454,7 +454,6 @@ Mapping notes and gaps:
 - **PostToolUse fires ONLY for shell commands.** The only call sites of `run_pre_tool_use_hooks` / `run_post_tool_use_hooks` in `codex-rs/core/src/hook_runtime.rs` both hardcode `tool_name: "Bash".to_string()`. There is **no code path** that emits a PostToolUse hook with `tool_name` of `Write`, `Edit`, `apply_patch`, or anything else. File-modification tools (`apply_patch` and its kin) bypass the hook system entirely. A `"matcher": "Write|Edit"` branch would be dead configuration — do **not** include one.
 - **Consequence for substantive-marking.** Unlike Claude Code (where `Write` / `Edit` hook fires on every file mutation), in Codex the only automatic substantive signals are the mutating git/gh commands inside a Bash invocation (`git commit`, `git push`, `gh pr merge`, `gh pr create`, `gh issue create`, `gh release create` — the widened set in `post-mark-substantive-if-commit.sh`). A Codex session that edits files via `apply_patch` and never runs one of these will not trip the substantive flag, and `stop-check-daily.sh` will let it exit without demanding a daily log. This is a known limitation until Codex expands its hook invocation set; the delegation-run capture step (Step 7.5) covers the orchestration case at the instruction level.
 - **PostToolUse stdout.** Codex's `PostToolUse` ignores non-JSON stdout, which is why every hook command ends with `|| echo '{}'` — the empty-object fallback keeps the JSON parser happy for pure-side-effect scripts.
-- **No turn-level response validation.** Codex has no `AfterAgent` equivalent, so there is no Gemini-style "reject response and retry" option. `Stop` is the sole enforcement point.
 
 After creating the file, validate it (`python3 -m json.tool ~/.codex/hooks.json`).
 
@@ -486,7 +485,7 @@ Mapping notes and gaps:
 
 - **Once-per-session bootstrap.** `before_agent_start` is a **per-turn** event. The extension guards it with a pair of session-scoped flags reset on `session_start`, which is what keeps `session-bootstrap.sh`'s once-per-session contract; without the guard every turn would re-inject the full ~3.8k-token bootstrap. `session_start` carries a `reason` (`startup` / `reload` / `new` / `resume` / `fork`), and only `startup` and `new` trigger an injection — the other three reload a transcript that already contains one, exactly the duplicate-stacking case `session-bootstrap-json.sh` avoids on Claude Code's `source=resume`.
 - **`agent_settled`, not `agent_end`.** `agent_end` fires when a low-level run ends, but pi may still auto-retry, auto-compact, or continue with queued follow-ups. `agent_settled` is the point at which pi will not continue on its own — the true `Stop` analog.
-- **No veto.** pi has neither Claude's `decision: "block"` nor Gemini's `decision: "deny"`. When `stop-check-daily.sh` returns a blocking decision, the extension delivers the `reason` through `pi.sendMessage(..., { deliverAs: "followUp", triggerTurn: true })` instead: the agent picks the work back up rather than being refused an exit it never asked for. The effect on the memory loop is the same, and `stop-check-daily.sh`'s own nagged flag bounds it to one hard demand per session, so the follow-up cannot loop. A soft `systemMessage` reminder is surfaced through `ctx.ui.notify` instead.
+- **No veto.** pi has neither Claude's `decision: "block"` nor a deny-style veto. When `stop-check-daily.sh` returns a blocking decision, the extension delivers the `reason` through `pi.sendMessage(..., { deliverAs: "followUp", triggerTurn: true })` instead: the agent picks the work back up rather than being refused an exit it never asked for. The effect on the memory loop is the same, and `stop-check-daily.sh`'s own nagged flag bounds it to one hard demand per session, so the follow-up cannot loop. A soft `systemMessage` reminder is surfaced through `ctx.ui.notify` instead.
 - **Session identity.** `/tmp` flag files are keyed by session id, which the extension derives from `ctx.sessionManager.getSessionFile()`. Ephemeral sessions (`--no-session`) have no file, so they fall back to a process-scoped id — their flags still pair up within the run.
 - **Failures are silent by design.** A missing script, a non-zero exit, or unparseable stdout is swallowed and never interrupts a turn, mirroring the `2>/dev/null || true` that the shell-hook harnesses wrap each command in.
 - **Prerequisite.** The marker scripts parse their stdin with `jq`; pi inherits that requirement from the shared scripts.
@@ -503,16 +502,17 @@ If your agent system does not support hooks at all, skip this step — the meta-
 
 ## Step 7.5: Delegation-run capture integration (skills-based harnesses)
 
-Hooks and the instructions block cover session-level capture, but orchestrated runs (epic/chain/auto implementation, ship, release preparation, hardening) mostly execute through delegated hands whose work never reaches episodic memory on its own. `$GYEOL_HOME/MEMORY_SYSTEM.md` "Delegation-Run Capture" is the normative procedure. Where the host exposes a Claude-style skills directory, gyeol ships that procedure as its own skill; the integration is deliberately **non-invasive**: gyeol installs and maintains exactly one skill directory of its own and never modifies any other skill. The instructions block (Step 6) tells the agent to follow the skill at run end when it is installed, and to skip when it is not.
+Hooks and the instructions block cover session-level capture, but orchestrated runs (epic/chain/auto implementation, ship, release preparation, hardening) mostly execute through delegated hands whose work never reaches episodic memory on its own. `$GYEOL_HOME/MEMORY_SYSTEM.md` "Delegation-Run Capture" is the normative procedure. Where the host exposes a skills directory, gyeol ships that procedure as its own skill; the integration is deliberately **non-invasive**: gyeol installs and maintains exactly one skill directory of its own and never modifies any other skill. The instructions block (Step 6) tells the agent to follow the skill at run end when it is installed, and to skip when it is not.
 
-1. **Detect a skills directory.** Claude Code: `~/.claude/skills/`. Codex commonly shares it via a symlink (`~/.codex/skills -> ~/.claude/skills`); if only `~/.codex/skills` exists as a real directory, use that. pi: `~/.pi/agent/skills/` — pi discovers any directory containing a `SKILL.md` recursively, so the Claude-style layout works unchanged. If no skills directory exists, skip this step entirely; the weekly coverage pass is the backstop.
+1. **Detect a skills directory.** Claude Code: `~/.claude/skills/`. Codex commonly shares it via a symlink (`~/.codex/skills -> ~/.claude/skills`); if only `~/.codex/skills` exists as a real directory, use that. Antigravity CLI: `~/.gemini/config/skills/`. pi: `~/.pi/agent/skills/` — pi discovers any directory containing a `SKILL.md` recursively, so the Claude-style layout works unchanged. If no skills directory exists, skip this step entirely; the weekly coverage pass is the backstop.
 
-2. **Install the `gyeol-capture` skill** from the repository (single source of truth: `skills/gyeol-capture/SKILL.md`):
+2. **Install the `gyeol-capture` skill** from the repository (single source of truth: `skills/gyeol-capture/SKILL.md`) into the target skills directory (shown below for `~/.claude/skills` or `~/.gemini/config/skills` as appropriate):
 
 ```bash
-mkdir -p ~/.claude/skills/gyeol-capture
+# For Claude Code (~/.claude/skills) or Antigravity CLI (~/.gemini/config/skills):
+mkdir -p <skills_dir>/gyeol-capture
 curl -fsSL https://raw.githubusercontent.com/inureyes/gyeol/main/skills/gyeol-capture/SKILL.md \
-  -o ~/.claude/skills/gyeol-capture/SKILL.md
+  -o <skills_dir>/gyeol-capture/SKILL.md
 ```
 
 3. **Do not modify any other skill.** No orchestration skill carries a reference to `gyeol-capture`; the skill's own description plus the Step 6 instructions bullet are the trigger. A host without the skill simply skips the step.
@@ -527,7 +527,7 @@ After completing all steps, report the following to the user:
 
 1. Where `$GYEOL_HOME` was set (`~/.config/gyeol` or equivalent)
 2. Which global config file was updated (e.g., `~/.claude/CLAUDE.md`, `~/.gemini/GEMINI.md`, or `~/.codex/AGENTS.md`)
-3. Which hook was installed and in which settings file (e.g., SessionStart hook in `~/.claude/settings.json`, or BeforeModel hook in `~/.gemini/settings.json`)
+3. Which hooks were installed and in which settings file (e.g., `~/.claude/settings.json`, `~/.gemini/config/hooks.json`, or `~/.codex/hooks.json`)
 4. Whether this is a fresh install or an update
 5. Whether this machine joined an existing memory tree (and from which remote), started a fresh one, or is not sharing memory
 6. Remind the user that on the next session start in this agent system, the First Activation procedure will run — they will be asked for a name and their own name. **Do not say this if Step 4.5 adopted an existing tree**: `IDENTITY.md` is present, First Activation will not run, and the agent keeps the name it already has.
@@ -560,11 +560,17 @@ To check for and apply updates immediately, run:
 sh ~/.config/gyeol/scripts/update-gyeol.sh
 ```
 
+Or non-interactively (e.g., when run by an agent):
+
+```bash
+sh ~/.config/gyeol/scripts/update-gyeol.sh --yes
+```
+
 This script:
 1. Compares your local `VERSION` against the upstream version
 2. If a new version exists, downloads `SOUL.md`, `MEMORY_SYSTEM.md`, and other core files
 3. Shows you a diff of the changes
-4. Asks for confirmation before applying updates
+4. Asks for confirmation before applying updates (or applies automatically when `-y` / `--yes` is passed or stdin is closed in a non-interactive session)
 5. Updates your local `VERSION` and `.last_update_check` files
 
 Use this for rapid iteration during development or when you want to pick up new features immediately without waiting for the 7-day cycle.
@@ -624,6 +630,6 @@ Run `sh ~/.config/gyeol/scripts/sync-memory.sh status` at any time to see how fa
 ## Uninstalling
 
 1. Remove the block between `<!-- gyeol:begin -->` and `<!-- gyeol:end -->` from the global config file.
-2. Remove the gyeol hooks from the harness settings file. For Claude Code this means removing every entry that references a script under `~/.config/gyeol/scripts/` across `SessionStart`, `PostToolUse`, `Stop`, and `SessionEnd`. For Gemini CLI / Codex, remove the equivalent gyeol-owned entries (see UNINSTALL.md for the full per-harness list). Leave the surrounding `hooks` structure in place if other hooks use it. For pi there is nothing to unmerge — delete the `~/.pi/agent/extensions/gyeol/` directory instead.
+2. Remove the gyeol hooks from the harness settings file. For Claude Code this means removing every entry that references a script under `~/.config/gyeol/scripts/` across `SessionStart`, `PostToolUse`, `Stop`, and `SessionEnd`. For Antigravity CLI / Codex, remove the equivalent gyeol-owned entries (see UNINSTALL.md for the full per-harness list). Leave the surrounding `hooks` structure in place if other hooks use it. For pi there is nothing to unmerge — delete the `~/.pi/agent/extensions/gyeol/` directory instead.
 3. Remove the `gyeol-capture` skill directory (Step 7.5) from every skills directory it was installed into. No other skill or extension was modified, so nothing else needs cleanup.
 4. Optionally remove `~/.config/gyeol/` (this will delete all memories permanently — confirm with user first).

@@ -1,22 +1,52 @@
 #!/usr/bin/env sh
-# gyeol SessionStart hook — JSON mode
+# gyeol SessionStart / PreInvocation hook — JSON mode
 #
-# Emits the bootstrap files (SOUL/IDENTITY/SELF/_recent) as
-# hookSpecificOutput.additionalContext so Claude Code injects them
-# directly into the model's context window instead of wrapping them
-# in <persisted-output> with a "too large" preview truncation.
+# Emits the bootstrap files (SOUL/IDENTITY/SELF/_recent) as structured JSON:
+# - Claude Code (SessionStart): registered as two split hook commands
+#   (`--part=soul` and `--part=memory`) so each `hookSpecificOutput.additionalContext`
+#   stays safely below Claude Code's 10,000-character per-hook output cap.
+# - OpenAI Codex (SessionStart): `hookSpecificOutput.additionalContext` (`--part=all`, default)
+# - Antigravity CLI (PreInvocation): `injectSteps[].systemMessage` (once per conversation)
 #
 # The raw-stdout variant (session-bootstrap.sh) remains for agent
-# harnesses that append raw stdout to the session — this script is
-# for Claude Code specifically.
+# harnesses that append raw stdout to the session.
+#
+# Each machine's Daily Index lives in `_recent.{machine}.md`; the memory part
+# emits every active one after the shared `_recent.md`, and the staleness check
+# reads this machine's `last_updated` from its own index file.
 
 GYEOL_HOME="${GYEOL_HOME:-$HOME/.config/gyeol}"
+
+PART="all"
+while [ $# -gt 0 ]; do
+  case "$1" in
+    --part=*)
+      PART="${1#--part=}"
+      shift
+      ;;
+    --part)
+      shift
+      if [ $# -gt 0 ]; then
+        PART="$1"
+        shift
+      fi
+      ;;
+    *)
+      shift
+      ;;
+  esac
+done
+
+case "$PART" in
+  soul|memory|all) ;;
+  *) PART="all" ;;
+esac
 
 # --- Trust gate ---------------------------------------------------------------
 # A provider that may train on what it receives gets no memory. See
 # scripts/trust-gate.sh. The fallback keeps the explicit opt-out working on an
 # install whose gate script has not arrived yet: a missing file must not read
-# as consent.
+# as consent. With split hooks the notice is emitted once, by the non-soul part.
 if [ -f "$GYEOL_HOME/scripts/trust-gate.sh" ]; then
   . "$GYEOL_HOME/scripts/trust-gate.sh"
 else
@@ -24,7 +54,7 @@ else
 fi
 
 if gyeol_trust_denied; then
-  if command -v jq > /dev/null 2>&1; then
+  if [ "$PART" != "soul" ] && command -v jq > /dev/null 2>&1; then
     gyeol_trust_notice | jq -Rs '{hookSpecificOutput: {hookEventName: "SessionStart", additionalContext: .}}'
   else
     echo '{}'
@@ -38,21 +68,33 @@ if [ ! -f "$GYEOL_HOME/SOUL.md" ]; then
   exit 0
 fi
 
-# Skip injection on `source=resume`. Claude Code and Gemini CLI both fire
-# SessionStart on startup / resume / clear. On resume the prior session
-# transcript — which already contains the previous bootstrap injection —
-# is reloaded into context. Firing again would stack a second full copy
-# of SOUL/IDENTITY/SELF/_recent on top of the first (~3.8k tokens per
-# duplicate). On `clear` the context is wiped, so re-injection is the
-# desired behavior. On `startup` this is the first time anyway.
-#
-# If a fresher _recent.md is needed after a long resume gap, the user
-# can /clear to force a clean re-injection.
 INPUT=$(cat 2>/dev/null || true)
-SOURCE=$(printf '%s' "$INPUT" | jq -r '.source // "startup"' 2>/dev/null || echo "startup")
-if [ "$SOURCE" = "resume" ]; then
-  echo '{}'
-  exit 0
+
+# Antigravity CLI uses PreInvocation (which fires before every model call and
+# carries camelCase `conversationId` + `invocationNum` on stdin). Guard with
+# both `invocationNum > 1` and a per-conversation flag file so the ~15 KB
+# bootstrap is injected only once on the first invocation of a conversation.
+CONV_ID=$(printf '%s' "$INPUT" | jq -r '.conversationId // empty' 2>/dev/null || true)
+if [ -n "$CONV_ID" ]; then
+  INVOCATION_NUM=$(printf '%s' "$INPUT" | jq -r '.invocationNum // 1' 2>/dev/null || echo "1")
+  BOOTSTRAP_FLAG="/tmp/gyeol_session_${CONV_ID}.bootstrapped"
+  if [ "$INVOCATION_NUM" -gt 1 ] 2>/dev/null || [ -f "$BOOTSTRAP_FLAG" ]; then
+    echo '{}'
+    exit 0
+  fi
+  touch "$BOOTSTRAP_FLAG" 2>/dev/null || true
+else
+  # Skip injection on `source=resume` (Claude Code / Codex SessionStart).
+  # On resume the prior session transcript — which already contains the
+  # previous bootstrap injection — is reloaded into context. Firing again
+  # would stack a second full copy of SOUL/IDENTITY/SELF/_recent on top of
+  # the first. On `clear` the context is wiped, so re-injection is the
+  # desired behavior. On `startup` this is the first time anyway.
+  SOURCE=$(printf '%s' "$INPUT" | jq -r '.source // "startup"' 2>/dev/null || echo "startup")
+  if [ "$SOURCE" = "resume" ]; then
+    echo '{}'
+    exit 0
+  fi
 fi
 
 build_bootstrap() {
@@ -60,9 +102,10 @@ build_bootstrap() {
   # Prune Daily Index entries older than 7 days (silent, idempotent) and capture
   # any Weekly Checkpoint staleness directive for later emit. Best-effort: never
   # blocks bootstrap on failure. Runs BEFORE the file emit so the pruned version
-  # of `_recent.md` is what reaches the model.
+  # of `_recent.md` is what reaches the model. Skipped in `--part=soul` so split
+  # Claude Code hooks do not run `maintain-recent.py` twice in parallel.
   WEEKLY_NOTE=""
-  if [ -f "$GYEOL_HOME/scripts/maintain-recent.py" ]; then
+  if [ "$PART" != "soul" ] && [ -f "$GYEOL_HOME/scripts/maintain-recent.py" ]; then
     WEEKLY_NOTE=$(python3 "$GYEOL_HOME/scripts/maintain-recent.py" 2>/dev/null || true)
   fi
 
@@ -86,73 +129,42 @@ command. The task-framing override failure mode was documented in the
 
 HEADER
 
-  for f in \
-    "$GYEOL_HOME/SOUL.md" \
-    "$GYEOL_HOME/memory/IDENTITY.md" \
-    "$GYEOL_HOME/memory/SELF.md" \
-    "$GYEOL_HOME/memory/episodes/_recent.md"
-  do
-    if [ -f "$f" ]; then
-      case "$f" in
-        "$HOME"/*) rel="~${f#$HOME}" ;;
-        *)         rel="$f" ;;
-      esac
-      printf '\n--- %s ---\n' "$rel"
-      cat "$f"
+  if [ "$PART" != "soul" ]; then
+    # --- Staleness check (emitted BEFORE file contents so it cannot be truncated) ---
+    # Compare `last_updated` in _recent.md to today. If a day or more has
+    # passed, emit a directive telling the agent to retrospect and record
+    # the missing activity BEFORE responding to the user's first message.
+    # Also surface any session-end records left by session-end.sh.
+    #
+    # Emitted at the top of the bootstrap (before IDENTITY/SELF/_recent) so
+    # that even if a harness truncates the tail of a long bootstrap payload,
+    # the mandatory recovery directive is never lost.
+    #
+    # `last_updated` lives in this machine's index file: a gap is this machine's
+    # gap, and one shared line every session bumped was a conflict on every sync.
+    # An install from before the split still has it in the shared file.
+    if [ -f "$GYEOL_HOME/scripts/machine-id.sh" ]; then
+      MACHINE=$(sh "$GYEOL_HOME/scripts/machine-id.sh" 2>/dev/null || echo unknown)
+    else
+      MACHINE=$(hostname -s 2>/dev/null || echo unknown)
     fi
-  done
+    [ -n "$MACHINE" ] || MACHINE=unknown
+    RECENT="$GYEOL_HOME/memory/episodes/_recent.$MACHINE.md"
+    [ -f "$RECENT" ] || RECENT="$GYEOL_HOME/memory/episodes/_recent.md"
+    SESSION_LOG="$GYEOL_HOME/.session-log.jsonl"
 
-  # This machine's Daily Index, then any other machine active in the window.
-  # The Daily Index is per machine (`_recent.{machine}.md`) so the lines every
-  # session rewrites never conflict across machines; Still Open stays shared.
-  if [ -f "$GYEOL_HOME/scripts/maintain-recent.py" ]; then
-    python3 "$GYEOL_HOME/scripts/maintain-recent.py" --active 2>/dev/null | while IFS= read -r f; do
-      [ -f "$f" ] || continue
-      case "$f" in
-        "$HOME"/*) rel="~${f#$HOME}" ;;
-        *)         rel="$f" ;;
-      esac
-      printf '\n--- %s ---\n' "$rel"
-      cat "$f"
-    done
-  fi
+    if [ -f "$RECENT" ]; then
+      last_date=$(awk '
+        /^last_updated:/ {
+          gsub(/[\047"]/, "", $2)
+          print $2
+          exit
+        }
+      ' "$RECENT")
 
-  # --- Staleness check -------------------------------------------------------
-  # Compare this machine's `last_updated` to today. If a day or more has
-  # passed, append a directive telling the agent to retrospect and record
-  # the missing activity BEFORE responding to the user's first message.
-  # Also surface any session-end records left by session-end.sh.
-  #
-  # This complements the Stop hook (stop-check-daily.sh): Stop blocks exit
-  # on substantive sessions with no daily log, but cannot recover gaps
-  # that accumulated across prior sessions whose Stop hook didn't fire
-  # (clean /clear, harness crash, sessions before the hook was installed,
-  # etc.).
-  # `last_updated` lives in this machine's index file: a gap is this machine's
-  # gap, and one shared line every session bumped was a conflict on every sync.
-  # An install from before the split still has it in the shared file.
-  if [ -f "$GYEOL_HOME/scripts/machine-id.sh" ]; then
-    MACHINE=$(sh "$GYEOL_HOME/scripts/machine-id.sh" 2>/dev/null || echo unknown)
-  else
-    MACHINE=$(hostname -s 2>/dev/null || echo unknown)
-  fi
-  [ -n "$MACHINE" ] || MACHINE=unknown
-  RECENT="$GYEOL_HOME/memory/episodes/_recent.$MACHINE.md"
-  [ -f "$RECENT" ] || RECENT="$GYEOL_HOME/memory/episodes/_recent.md"
-  SESSION_LOG="$GYEOL_HOME/.session-log.jsonl"
-
-  if [ -f "$RECENT" ]; then
-    last_date=$(awk '
-      /^last_updated:/ {
-        gsub(/[\047"]/, "", $2)
-        print $2
-        exit
-      }
-    ' "$RECENT")
-
-    if [ -n "$last_date" ]; then
-      today=$(date +%Y-%m-%d)
-      days_since=$(python3 -c "
+      if [ -n "$last_date" ]; then
+        today=$(date +%Y-%m-%d)
+        days_since=$(python3 -c "
 import sys
 from datetime import date
 try:
@@ -163,19 +175,19 @@ except Exception:
     sys.exit(1)
 " 2>/dev/null)
 
-      if [ -n "$days_since" ] && [ "$days_since" -ge 1 ]; then
-        printf '\n=== STALE EPISODE LOG (MANDATORY ACTION REQUIRED) ===\n'
-        printf '`%s` last_updated is %s — %s day(s) ago.\n' "${RECENT##*/}" "$last_date" "$days_since"
-        printf 'Sessions almost certainly occurred in that gap without being logged.\n\n'
+        if [ -n "$days_since" ] && [ "$days_since" -ge 1 ]; then
+          printf '\n=== STALE EPISODE LOG (MANDATORY ACTION REQUIRED) ===\n'
+          printf '`%s` last_updated is %s — %s day(s) ago.\n' "${RECENT##*/}" "$last_date" "$days_since"
+          printf 'Sessions almost certainly occurred in that gap without being logged.\n\n'
 
-        if [ -f "$SESSION_LOG" ] && [ -s "$SESSION_LOG" ]; then
-          cnt=$(wc -l < "$SESSION_LOG" | tr -d ' ')
-          printf 'session-end.sh recorded %s session(s) since the last log update:\n\n' "$cnt"
-          cat "$SESSION_LOG"
-          printf '\n'
-        fi
+          if [ -f "$SESSION_LOG" ] && [ -s "$SESSION_LOG" ]; then
+            cnt=$(wc -l < "$SESSION_LOG" | tr -d ' ')
+            printf 'session-end.sh recorded %s session(s) since the last log update:\n\n' "$cnt"
+            cat "$SESSION_LOG"
+            printf '\n'
+          fi
 
-        cat <<'STALE_DIRECTIVE'
+          cat <<'STALE_DIRECTIVE'
 BEFORE responding to the user's first message:
 
 1. Retrospect on the gap. Use `~/.claude/projects/` (or harness-specific
@@ -206,23 +218,92 @@ session-end logging was missed, and ignoring it perpetuates the failure
 mode.
 
 STALE_DIRECTIVE
+        fi
       fi
+    fi
+
+    # --- _recent.md maintenance directives (also emitted BEFORE file contents) ---
+    # maintain-recent.py surfaces a stale Weekly Checkpoint and/or _recent.md bloat
+    # here so the agent fixes them on the next update.
+    if [ -n "$WEEKLY_NOTE" ]; then
+      printf '\n=== _RECENT.MD MAINTENANCE ===\n%s\n' "$WEEKLY_NOTE"
     fi
   fi
 
-  # --- _recent.md maintenance directives --------------------------------------
-  # maintain-recent.py surfaces a stale Weekly Checkpoint and/or _recent.md bloat
-  # here so the agent fixes them on the next update.
-  if [ -n "$WEEKLY_NOTE" ]; then
-    printf '\n=== _RECENT.MD MAINTENANCE ===\n%s\n' "$WEEKLY_NOTE"
+  case "$PART" in
+    soul)
+      FILES="$GYEOL_HOME/SOUL.md"
+      ;;
+    memory)
+      FILES="$GYEOL_HOME/memory/IDENTITY.md
+$GYEOL_HOME/memory/SELF.md
+$GYEOL_HOME/memory/episodes/_recent.md"
+      ;;
+    *)
+      FILES="$GYEOL_HOME/SOUL.md
+$GYEOL_HOME/memory/IDENTITY.md
+$GYEOL_HOME/memory/SELF.md
+$GYEOL_HOME/memory/episodes/_recent.md"
+      ;;
+  esac
+
+  OLD_IFS="$IFS"
+  IFS='
+'
+  for f in $FILES; do
+    IFS="$OLD_IFS"
+    if [ -f "$f" ]; then
+      case "$f" in
+        "$HOME"/*) rel="~${f#$HOME}" ;;
+        *)         rel="$f" ;;
+      esac
+      printf '\n--- %s ---\n' "$rel"
+      cat "$f"
+    fi
+  done
+  IFS="$OLD_IFS"
+
+  # This machine's Daily Index, then any other machine active in the window.
+  # The Daily Index is per machine (`_recent.{machine}.md`) so the lines every
+  # session rewrites never conflict across machines; Still Open stays shared.
+  if [ "$PART" != "soul" ] && [ -f "$GYEOL_HOME/scripts/maintain-recent.py" ]; then
+    python3 "$GYEOL_HOME/scripts/maintain-recent.py" --active 2>/dev/null | while IFS= read -r f; do
+      [ -f "$f" ] || continue
+      case "$f" in
+        "$HOME"/*) rel="~${f#$HOME}" ;;
+        *)         rel="$f" ;;
+      esac
+      printf '\n--- %s ---\n' "$rel"
+      cat "$f"
+    done
   fi
 
   printf '\n=== end gyeol bootstrap ===\n'
 }
 
-build_bootstrap | jq -Rs '{
-  hookSpecificOutput: {
-    hookEventName: "SessionStart",
-    additionalContext: .
-  }
-}'
+if [ -n "$CONV_ID" ]; then
+  # Antigravity CLI PreInvocation (`exa.hooks_pb.HookInjectedStep`):
+  # - `toolCall` is marked `(exa.cortex_pb.internal_only) = true` in hooks.proto
+  #   and scrubbed to <nil> by `utils.ScrubInternalFields` for external hooks.
+  # - `ephemeralMessage` is stripped after a single model invocation (so any tool
+  #   call on turn 1 erases the bootstrap from subsequent turns).
+  # - `userMessage` persists in the trajectory, but renders as a giant user bubble.
+  # - `systemMessage` (`HookSystemMessage`) is public (not internal_only) and
+  #   injects a persistent `SYSTEM_MESSAGE` step that is not attributed to the user.
+  build_bootstrap | jq -Rs '{
+    injectSteps: [
+      {
+        systemMessage: {
+          systemMessage: .
+        }
+      }
+    ]
+  }'
+else
+  build_bootstrap | jq -Rs '{
+    hookSpecificOutput: {
+      hookEventName: "SessionStart",
+      additionalContext: .
+    }
+  }'
+fi

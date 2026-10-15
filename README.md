@@ -16,7 +16,7 @@ Enter the following prompt for your AI agent:
 Fetch https://raw.githubusercontent.com/inureyes/gyeol/main/INSTALL.md and follow the instructions.
 ```
 
-This works with **Claude Code**, **Gemini CLI**, **OpenAI Codex**, and **pi**. The agent will:
+This works with **Claude Code**, **Antigravity CLI**, **OpenAI Codex**, and **pi**. The agent will:
 
 1. Create `~/.config/gyeol/` with core files (SOUL.md, MEMORY_SYSTEM.md, scripts)
 2. Set up the memory directory structure
