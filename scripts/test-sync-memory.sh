@@ -35,7 +35,7 @@ check_contains() {
   esac
 }
 
-git_q() { git -C "$1" -c user.name=test -c user.email=test@example.com "${@:-}" ; }
+git_q() { _repo=$1; shift; git -C "$_repo" -c user.name=test -c user.email=test@example.com "$@" ; }
 
 # --- machine helpers --------------------------------------------------------
 
@@ -102,6 +102,25 @@ check "and alpha's new file arrived in the same pull" \
   "$(cat "$TMP/beta/memory/episodes/daily/2026-06-03.md" 2>/dev/null)" "alpha day three"
 check "beta's file was committed, not left dirty" \
   "$(git -C "$TMP/beta/memory" status --porcelain | wc -l | tr -d ' ')" "0"
+
+# --- a commit stranded by a cancelled SessionEnd push goes up at the next pull
+
+# Claude Code cancels a SessionEnd hook that outruns its budget, which leaves the
+# session's memory committed locally but never pushed. The next pull must carry it.
+echo "stranded on alpha" > "$TMP/alpha/memory/episodes/daily/2026-06-03b.md"
+git_q "$TMP/alpha/memory" add -A
+git_q "$TMP/alpha/memory" commit --quiet -m "memory: stranded by a cancelled push"
+check "precondition: the commit exists locally and the tree is clean" \
+  "$(git -C "$TMP/alpha/memory" status --porcelain | wc -l | tr -d ' ')" "0"
+check "precondition: the remote does not have it" \
+  "$(git --git-dir="$TMP/remote.git" cat-file -e "$(git -C "$TMP/alpha/memory" rev-parse HEAD)^{commit}" 2>/dev/null && echo present || echo absent)" "absent"
+out=$(sync alpha pull)
+check "a pull that carries a stranded commit stays silent" "$out" "{}"
+check "the stranded commit reached the remote" \
+  "$(git --git-dir="$TMP/remote.git" rev-parse main)" "$(git -C "$TMP/alpha/memory" rev-parse HEAD)"
+sync beta pull > /dev/null
+check "...and from there the other machine" \
+  "$(cat "$TMP/beta/memory/episodes/daily/2026-06-03b.md" 2>/dev/null)" "stranded on alpha"
 
 # --- a push that races another machine still lands --------------------------
 

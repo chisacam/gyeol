@@ -9,7 +9,8 @@
 #
 # Usage:
 #   sync-memory.sh join <url>  # first-time setup: adopt an existing memory tree
-#   sync-memory.sh pull        # SessionStart: bring in what other machines wrote
+#   sync-memory.sh pull        # SessionStart: bring in what other machines wrote,
+#                              # then publish anything an earlier session left behind
 #   sync-memory.sh push        # SessionEnd: publish what this session wrote
 #   sync-memory.sh status      # report without changing anything (default)
 #
@@ -183,6 +184,19 @@ commit_local() {
 }
 
 # Merge FETCH_HEAD, or abort and say so. Never leaves the tree conflicted.
+# Publish local commits that never reached the remote. Claude Code gives a
+# SessionEnd hook a 1.5 s budget unless the hook sets its own `timeout`, and one
+# round trip to a git host already takes longer than that (2.2-2.4 s measured for
+# `git push --dry-run` on 2026-10-16), so the SessionEnd push can be cancelled
+# and its commits stranded. SessionStart has no such budget, so pull carries
+# them up. Only called after a clean merge: a diverged tree stays local.
+push_stranded() {
+  ahead=$(git_mem rev-list --count FETCH_HEAD..HEAD 2>/dev/null || echo 0)
+  [ "${ahead:-0}" -gt 0 ] 2>/dev/null || return 0
+  if ! git_mem push --quiet origin "$BRANCH" > /dev/null 2>&1; then
+    note "$ahead local memory commit(s) are not on the remote yet and pushing them now failed; they stay committed here and go up on the next successful sync."
+  fi
+}
 merge_fetched() {
   if git_mem merge --no-edit --quiet FETCH_HEAD > /dev/null 2>&1; then
     return 0
@@ -200,7 +214,9 @@ case "$MODE" in
       note "could not reach the memory remote, so this session starts from the local copy. Anything written now still commits locally and pushes on the next successful sync."
       emit_and_exit
     fi
-    merge_fetched
+    if merge_fetched; then
+      push_stranded
+    fi
     emit_and_exit
     ;;
 
