@@ -180,9 +180,39 @@ if [ -n "$WEEKLY_NOTE" ]; then
   printf '\n=== _RECENT.MD MAINTENANCE ===\n%s\n' "$WEEKLY_NOTE"
 fi
 
+# --- Writing style -------------------------------------------------------------
+# A per-language writing guide ($GYEOL_HOME/styles/{lang}.md) is injected right
+# after IDENTITY.md when one of the terms in its `match:` frontmatter appears in
+# IDENTITY's `preferred_language` line. Memory read at bootstrap is also the
+# style the next writer imitates, so the guide has to arrive before any write.
+# No guide, no IDENTITY, or no match -> nothing is injected.
+gyeol_style_file() {
+  _id="$GYEOL_HOME/memory/IDENTITY.md"
+  [ -f "$_id" ] || return 0
+  _lang=$(grep -m1 '^preferred_language:' "$_id" 2>/dev/null) || return 0
+  for _s in "$GYEOL_HOME"/styles/*.md; do
+    [ -f "$_s" ] || continue
+    _terms=$(sed -n 's/^match:[[:space:]]*\[\(.*\)\][[:space:]]*$/\1/p' "$_s" | head -n 1)
+    [ -n "$_terms" ] || continue
+    _old_ifs=$IFS
+    IFS=,
+    for _t in $_terms; do
+      _t=$(printf '%s' "$_t" | sed 's/^[[:space:]]*"//; s/"[[:space:]]*$//')
+      [ -n "$_t" ] || continue
+      case "$_lang" in
+        *"$_t"*) IFS=$_old_ifs; printf '%s\n' "$_s"; return 0 ;;
+      esac
+    done
+    IFS=$_old_ifs
+  done
+  return 0
+}
+STYLE_FILE=$(gyeol_style_file)
+
 for f in \
   "$GYEOL_HOME/SOUL.md" \
   "$GYEOL_HOME/memory/IDENTITY.md" \
+  "$STYLE_FILE" \
   "$GYEOL_HOME/memory/SELF.md" \
   "$GYEOL_HOME/memory/episodes/_recent.md"
 do
