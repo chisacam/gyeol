@@ -390,7 +390,7 @@ if not isinstance(hooks, dict):
 
 session_start = hooks.get("SessionStart")
 if not isinstance(session_start, list):
-    sys.exit(0)
+    session_start = []
 
 soul_cmd = 'sh "$HOME/.config/gyeol/scripts/session-bootstrap-json.sh" --part=soul 2>/dev/null || echo \'{}\''
 mem_cmd = 'sh "$HOME/.config/gyeol/scripts/session-bootstrap-json.sh" --part=memory 2>/dev/null || echo \'{}\''
@@ -420,7 +420,29 @@ for group in session_start:
     if group_changed:
         group["hooks"] = new_inner
 
-if not changed:
+# SessionEnd budget: Claude Code cancels a SessionEnd hook after 1.5 s unless the
+# hook sets its own `timeout`, and the memory push needs at least one git round
+# trip (2.2-2.4 s measured on 2026-10-16). Give the push hook its own timeout;
+# 15 s is an estimate covering the rejected-push, fetch, merge, retry path. A
+# timeout the user already set is left alone.
+timeout_added = False
+session_end = hooks.get("SessionEnd")
+if isinstance(session_end, list):
+    for group in session_end:
+        if not isinstance(group, dict):
+            continue
+        for item in group.get("hooks") or []:
+            if (
+                isinstance(item, dict)
+                and isinstance(item.get("command"), str)
+                and "sync-memory.sh" in item["command"]
+                and "push" in item["command"]
+                and "timeout" not in item
+            ):
+                item["timeout"] = 15
+                timeout_added = True
+
+if not changed and not timeout_added:
     sys.exit(0)
 
 parent = os.path.dirname(path)
@@ -430,7 +452,10 @@ try:
         json.dump(data, f, indent=2, ensure_ascii=False)
         f.write("\n")
     os.replace(tmp_path, path)
-    print(f"↻ Migrated Claude Code SessionStart hook to split --part=soul/--part=memory in {path}")
+    if changed:
+        print(f"↻ Migrated Claude Code SessionStart hook to split --part=soul/--part=memory in {path}")
+    if timeout_added:
+        print(f"↻ Gave the SessionEnd memory push its own timeout (15 s) in {path}")
 except Exception:
     try:
         os.unlink(tmp_path)

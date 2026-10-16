@@ -315,7 +315,8 @@ Edit `~/.claude/settings.json` (create it if missing). Add (or merge into) a top
           },
           {
             "type": "command",
-            "command": "sh \"$HOME/.config/gyeol/scripts/sync-memory.sh\" push 2>/dev/null || true"
+            "command": "sh \"$HOME/.config/gyeol/scripts/sync-memory.sh\" push 2>/dev/null || true",
+            "timeout": 15
           }
         ]
       }
@@ -333,7 +334,7 @@ What each hook enforces:
 - **PostToolUse (`git show`)** → marks the session as having a recovery event so the Stop hook demands an `Incidents` subsection.
 - **Stop** → if the session is substantive but today's daily log is missing, blocks stopping with a `decision: "block"` payload instructing the agent to write the daily log. A per-session nagged flag prevents infinite loops on retry.
 - **SessionStart (sync pull)** → registered *before* the bootstrap in the same group, because the bootstrap is about to read `IDENTITY.md` / `SELF.md` / `_recent.md` and reading them before another machine's work arrives is how two machines drift into two identities. A no-op on a single-machine install.
-- **SessionEnd (sync push)** → publishes what this session wrote. Registered after `session-end.sh` so the evidence record is included in the same commit.
+- **SessionEnd (sync push)** → publishes what this session wrote. It carries its own `"timeout": 15` because Claude Code gives SessionEnd hooks a 1.5-second budget unless a hook sets its own `timeout` (which raises the budget to the highest per-hook value, up to 60 seconds), and a single round trip to a git host already takes longer than that: `git push --dry-run` to a GitHub remote measured 2.2–2.4 seconds on 2026-10-16. Without it the push is cancelled ("Hook cancelled") and the commits stay local. 15 seconds is an estimate that covers the slowest normal path (rejected push, fetch, merge, retry); `sync-memory.sh pull` also pushes anything still stranded, so a cancelled push recovers at the next session start. Hooks in one group run in parallel, so the `session-end.sh` record from the same exit may land in the next sync rather than this one.
 - **SessionEnd** → append-only evidence record. Writes `{"end": "<UTC ISO 8601>", "cwd": "<path>"}` to `$GYEOL_HOME/.session-log.jsonl`. Cannot block exit (SessionEnd fires after the agent has stopped) and is not meant to — its purpose is to leave a breadcrumb that the *next* SessionStart's staleness check can surface. Recovers the gap when Stop never fired: clean `/clear`, harness crash, the session predating hook installation, or non-substantive sessions whose memory updates were nevertheless meaningful.
 
 ### Antigravity CLI (if `~/.gemini/antigravity-cli/` or `~/.gemini/config/` exists)
