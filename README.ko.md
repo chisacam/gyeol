@@ -207,6 +207,7 @@ AI 시스템에게 가장 중요해질 것은 기억입니다. 수집한 지식,
 | [`scripts/test-sync-memory.sh`](scripts/test-sync-memory.sh) | 두 기계를 시뮬레이션해 기억 동기화 시험 |
 | [`scripts/test-harness-opt-out.sh`](scripts/test-harness-opt-out.sh) | `.disabled-harnesses`에 적힌 하네스가 되살아나지 않는지 시험 |
 | [`scripts/test-trust-gate.sh`](scripts/test-trust-gate.sh) | 신뢰되지 않는 프로바이더에게 기억이 가지 않는지, 각 항목마다 대조군과 함께 시험 |
+| [`scripts/test-worker-role.sh`](scripts/test-worker-role.sh) | 워커 세션(`GYEOL_ROLE=worker`)에 기억이 가지 않고 어떤 훅도 git을 부르거나 파일을 쓰지 않는지, 각 항목마다 대조군과 함께 시험 |
 | [`extensions/pi/index.ts`](extensions/pi/index.ts) | pi 하네스 통합 (pi에는 셸 훅이 없어, 이 확장이 같은 스크립트를 호출) |
 | [`extensions/pi/test.mjs`](extensions/pi/test.mjs) | pi 통합 동작 시험 |
 | `VERSION` | 현재 버전 (YY.M.DD 날짜 형식) |

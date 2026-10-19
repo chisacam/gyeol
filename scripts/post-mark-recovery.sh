@@ -14,6 +14,14 @@ set -eu
 
 GYEOL_HOME="${GYEOL_HOME:-$HOME/.config/gyeol}"
 
+# --- Worker role --------------------------------------------------------------
+# A worker writes no daily log, so a recovery has nowhere to be recorded. See
+# MEMORY_SYSTEM.md "Worker Sessions".
+if [ "${GYEOL_ROLE:-}" = "worker" ]; then
+  echo '{}'
+  exit 0
+fi
+
 # --- Trust gate ---------------------------------------------------------------
 # A provider that may train on what it receives gets no memory. See
 # scripts/trust-gate.sh. The fallback keeps the explicit opt-out working on an
