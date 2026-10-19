@@ -7,6 +7,10 @@
 
 set -u
 
+# A worker session (GYEOL_ROLE=worker) turns every hook off; a test run from
+# inside one must still exercise them.
+unset GYEOL_ROLE
+
 SCRIPT_DIR=$(cd "$(dirname "$0")" && pwd)
 SYNC="$SCRIPT_DIR/sync-memory.sh"
 

@@ -209,6 +209,7 @@ When encountering an unknown question, the system searches its knowledge base fi
 | [`scripts/test-sync-memory.sh`](scripts/test-sync-memory.sh) | Test memory sync against two simulated machines |
 | [`scripts/test-harness-opt-out.sh`](scripts/test-harness-opt-out.sh) | Test that a harness listed in `.disabled-harnesses` is not reinstated |
 | [`scripts/test-trust-gate.sh`](scripts/test-trust-gate.sh) | Test that an untrusted provider receives no memory, each case against a control |
+| [`scripts/test-worker-role.sh`](scripts/test-worker-role.sh) | Test that a worker session (`GYEOL_ROLE=worker`) receives no memory and that no hook calls git or writes a file, each case against a control |
 | [`extensions/pi/index.ts`](extensions/pi/index.ts) | pi harness integration (pi has no shell hooks; this extension calls the same scripts) |
 | [`extensions/pi/test.mjs`](extensions/pi/test.mjs) | Behavioural test for the pi integration |
 | `VERSION` | Current version in YY.M.DD date format |

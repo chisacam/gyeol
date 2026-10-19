@@ -28,6 +28,15 @@
 
 GYEOL_HOME="${GYEOL_HOME:-$HOME/.config/gyeol}"
 
+# --- Worker role --------------------------------------------------------------
+# Unlike a session whose provider is untrusted, a worker leaves no record: the
+# orchestrator that started it records the run, so a session-end line here
+# would only flag the same work as a gap at the next bootstrap. See
+# MEMORY_SYSTEM.md "Worker Sessions".
+if [ "${GYEOL_ROLE:-}" = "worker" ]; then
+  exit 0
+fi
+
 # If gyeol is not installed on this machine, stay silent.
 [ -d "$GYEOL_HOME" ] || exit 0
 

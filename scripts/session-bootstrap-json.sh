@@ -42,6 +42,23 @@ case "$PART" in
   *) PART="all" ;;
 esac
 
+# --- Worker role --------------------------------------------------------------
+# A session an orchestrator started as a worker needs no memory: it owns one
+# task, and the orchestrator records the run. GYEOL_ROLE=worker (exact value)
+# skips the bootstrap before the trust gate is asked, so a worker is told it is
+# a worker, not that its provider is untrusted. Read nothing, write nothing; the
+# notice is emitted once, by the non-soul part. See MEMORY_SYSTEM.md "Worker
+# Sessions".
+if [ "${GYEOL_ROLE:-}" = "worker" ]; then
+  if [ "$PART" != "soul" ]; then
+    printf '{"hookSpecificOutput":{"hookEventName":"SessionStart","additionalContext":"%s"}}\n' \
+      "gyeol: worker session (GYEOL_ROLE=worker). The memory bootstrap and every gyeol step are skipped: do not read the gyeol home directory, run the self-update check, or write a daily log or _recent file. The orchestrator records the run."
+  else
+    echo '{}'
+  fi
+  exit 0
+fi
+
 # --- Trust gate ---------------------------------------------------------------
 # A provider that may train on what it receives gets no memory. See
 # scripts/trust-gate.sh. The fallback keeps the explicit opt-out working on an

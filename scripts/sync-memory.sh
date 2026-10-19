@@ -41,6 +41,21 @@ machine_id() {
   hostname -s 2>/dev/null || echo unknown
 }
 
+# --- Worker role --------------------------------------------------------------
+# A worker session reads and writes no memory, so it has nothing to pull or
+# push, and the round trips are paid once per worker. GYEOL_ROLE=worker (exact
+# value) makes pull and push no-ops that never run git; join and status are
+# commands a person runs and are unchanged. See MEMORY_SYSTEM.md "Worker
+# Sessions".
+case "$MODE" in
+  pull|push)
+    if [ "${GYEOL_ROLE:-}" = "worker" ]; then
+      echo '{}'
+      exit 0
+    fi
+    ;;
+esac
+
 # --- Trust gate ---------------------------------------------------------------
 # A provider that may train on what it receives gets no memory. See
 # scripts/trust-gate.sh. The fallback keeps the explicit opt-out working on an

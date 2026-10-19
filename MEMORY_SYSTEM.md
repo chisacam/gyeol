@@ -612,6 +612,23 @@ This gate covers what gyeol itself injects and reads. It does not police what th
 
 `sh scripts/test-trust-gate.sh` exercises all of it, each case against a control: the allow row has to produce the memory that the deny row withholds, or the deny row proves nothing.
 
+### Worker Sessions — Sessions That Need No Memory
+
+An orchestrator that splits a goal across sessions starts each worker for one task, with the role, owned paths and done condition in the spawn prompt. A worker needs no identity to do that task, and it does not record the run either: the orchestrator does (Delegation-Run Capture, "Scope guard"). What the hooks would do for a worker is pure cost, paid again by every worker: the memory part of the bootstrap alone was 41,194 characters on 2026-10-16, and the sync hooks add a git round trip at each end.
+
+`GYEOL_ROLE=worker`, set in the environment the worker's harness is started with, turns all of it off. The value must be exactly `worker`; any other value, or none, leaves every hook as it was.
+
+- **Bootstrap.** No memory is emitted and `maintain-recent.py` does not run. `--part=soul` prints `{}`. The memory part, `--part=all` and the raw `session-bootstrap.sh` print one line saying this is a worker session and the gyeol steps are skipped, so the agent does not go looking for the files on its own.
+- **Sync.** `sync-memory.sh pull` and `push` print `{}` and exit without running git. `join` and `status` are commands a person runs, and are unchanged.
+- **Stop gate and markers.** `stop-check-daily.sh` and the three PostToolUse markers print `{}` and write no flag. `session-end.sh` writes no record.
+- **Instructions.** The instructions block carries the same rule, so the agent does not run the bootstrap by hand either. It also counts a session whose first message is a worker spawn prompt as a worker, for a worker started without the variable.
+
+The role is decided before the trust gate is asked, so an untrusted worker is told that it is a worker rather than that its provider is untrusted; it receives no memory either way. Unlike a denied session, a worker leaves no `session-end.sh` record: the orchestrator's capture is the record of the run, and a line here would only flag the same work as a gap at the next bootstrap.
+
+`GYEOL_TRUST=off` would also empty the bootstrap, but it states that the provider is untrusted, which is a different fact, and the notice it produces tells the agent exactly that.
+
+`sh scripts/test-worker-role.sh` runs every hook as a worker in a synthetic home, with a git stub on `PATH` that logs each call, and checks each one against a control with the variable unset: no memory, no git call, no file created or changed.
+
 ### Adding a Reference
 
 1. Check `_index.md` for the last used ID.
